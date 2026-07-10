@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "start": "node apps/api/src/server.js"
+    "start": "node apps/api/src/server.js",
+    "worker": "node jobs/worker/index.js"
   },
   "engines": {
     "node": ">=20"
