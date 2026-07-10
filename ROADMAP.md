@@ -218,19 +218,72 @@ Verify:
 # DAY 2
 ## Database + Workflow State
 
-Create PostgreSQL tables:
+Day 2 establishes the minimum relational data and workflow foundation required for the APEX OS Content Candidate loop.
 
-- sources
-- signals
-- contents
-- creative_packs
-- videos
-- posts
-- metric_snapshots
-- vehicles
-- countries
+The Day 2 implementation boundary is:
 
-Define Content ID format:
+SOURCE
+→ SIGNAL
+→ CONTENT
+→ STATUS HISTORY
+→ CONTENT CRUD API
+→ CANDIDATES DASHBOARD
+→ END-TO-END VERIFICATION
+
+Do not prematurely design downstream tables before their owning workflow stage is implemented.
+
+### Task 2.0 — Repository Verification
+
+Verify:
+
+- clean Git working tree
+- current branch is `main`
+- local HEAD matches expected remote state
+- Day 1 Dashboard and infrastructure changes are committed and pushed
+
+### Task 2.1 — Inspect Existing API Structure
+
+Inspect:
+
+- API entrypoint
+- PostgreSQL client
+- connection pattern
+- Worker connection pattern
+- existing migration tooling
+
+Confirmed MVP implementation:
+
+- Node.js `node:http`
+- `pg` PostgreSQL client
+- `pg.Pool`
+- no ORM
+- raw SQL migrations
+
+Do not introduce Prisma, Drizzle, Knex, or another ORM during Day 2 unless a blocker requires architecture review.
+
+### Task 2.2 — Core Schema Design
+
+Design the minimum relational model required to support:
+
+SOURCE
+→ SIGNAL
+→ CONTENT
+→ STATUS
+
+Core relationships:
+
+- one Source has many Signals
+- one Signal may produce multiple Contents
+- one Country may be associated with many Contents
+- one Vehicle may be associated with many Contents
+- one Content has many Status History records
+
+Use:
+
+- internal database identity IDs for relational references
+- human-readable `content_id` for operational workflow
+
+Content ID format:
 
 P0-{COUNTRY}-{CAR}-{NUMBER}
 
@@ -238,11 +291,157 @@ Example:
 
 P0-JP-RX7-001
 
+### Task 2.3 — Migration System
+
+Create:
+
+db/migrations/
+
+Implement a migration runner that:
+
+- discovers SQL migration files
+- executes only pending migrations
+- records completed migrations
+- uses database transactions
+- prevents duplicate migration execution
+
+Migration history table:
+
+schema_migrations
+
+Do not manually create production tables outside the migration system.
+
+### Task 2.4 — Core PostgreSQL Schema
+
+Create the Day 2 core tables:
+
+- countries
+- vehicles
+- sources
+- signals
+- contents
+- content_status_history
+
+The purpose of the Day 2 schema is to validate the complete Content Candidate workflow.
+
+The following downstream tables are intentionally deferred until their owning workflow stages:
+
+Day 7:
+- creative_packs
+
+Day 8:
+- videos
+
+Day 9:
+- posts
+
+Day 10:
+- metric_snapshots
+
+This prevents premature schema design and keeps database development aligned with actual workflow implementation.
+
 Implement workflow statuses defined in STATUS_FLOW.md.
 
-Create Dashboard Content Table.
+Current workflow statuses:
 
-Required columns:
+- DISCOVERED
+- ANALYZED
+- RECOMMENDED
+- CEO_APPROVED
+- PACK_READY
+- GENERATING
+- UPLOADED
+- QA_APPROVED
+- SCHEDULED
+- PUBLISHED
+- ANALYZING
+- WINNER
+- RESERVE_SIGNAL
+- ARCHIVED
+
+Store:
+
+- current state in `contents.status`
+- transition history in `content_status_history`
+
+Status history must support future measurement of:
+
+- analysis lead time
+- CEO approval time
+- generation cycle time
+- QA retry cycles
+- publishing latency
+- analytics classification time
+
+### Task 2.5 — Seed Data
+
+Create development seed data:
+
+- at least 5 sources
+- at least 10 signals
+- at least 5 content candidates
+- representative countries
+- representative vehicles
+- initial status history records
+
+Seed data must:
+
+- be clearly marked as synthetic development data
+- use meaningful DC 2100-aligned examples
+- cover multiple workflow statuses
+- not pretend to be real Scanner output
+
+### Task 2.6 — Content CRUD API
+
+Implement:
+
+GET /contents
+
+GET /contents/:id
+
+POST /contents
+
+PATCH /contents/:id
+
+DELETE /contents/:id
+
+PATCH /contents/:id/status
+
+Required API behavior:
+
+- list Content Candidates
+- retrieve single Content details
+- create Content
+- generate or validate Content ID
+- update editable Content fields
+- delete Content
+- validate status transitions
+- reject illegal workflow jumps
+- automatically write status history
+- return structured error responses
+- support browser access from the Netlify Dashboard
+
+Validate the CRUD API through an automated test covering:
+
+CREATE
+→ READ
+→ UPDATE
+→ VALID STATUS TRANSITION
+→ INVALID STATUS TRANSITION REJECTION
+→ DELETE
+→ DELETE CONFIRMATION
+
+### Task 2.7 — Candidates Dashboard Connection
+
+Connect the static Netlify Dashboard to the Railway APEX API.
+
+Architecture:
+
+Browser
+→ Railway APEX API
+→ PostgreSQL
+
+The Candidates page must display:
 
 - Content ID
 - Country
@@ -253,17 +452,60 @@ Required columns:
 - Created Date
 - Updated Date
 
-Create test data:
+Required UI states:
 
-- at least 5 sources
-- at least 10 signals
-- at least 5 content candidates
+- loading
+- success
+- empty
+- error
+- retry / refresh
+
+Because the Dashboard uses Next.js static export, dynamic Content data must be fetched by the browser from the Railway API.
+
+Do not move PostgreSQL access into the static Dashboard.
+
+### Task 2.8 — End-to-End Workflow Verification
+
+Verify the complete Day 2 path:
+
+Netlify Dashboard
+→ Browser Fetch
+→ Railway APEX API
+→ PostgreSQL
+→ API Response
+→ Dashboard Render
+
+Then verify interactive Content operations:
+
+CREATE CONTENT
+→ READ CONTENT
+→ UPDATE CONTENT
+→ CHANGE STATUS
+→ VERIFY STATUS HISTORY
+→ DELETE TEST CONTENT
+
+At minimum, verify one legal workflow sequence:
+
+DISCOVERED
+→ ANALYZED
+→ RECOMMENDED
+→ CEO_APPROVED
+
+Also verify that an illegal transition is rejected.
 
 ### Day 2 Deliverable
 
-Dashboard can create, read, update, and delete Content records.
+Day 2 is complete only when:
 
-Status changes work correctly.
+- PostgreSQL core schema is migration-controlled.
+- Core seed data exists.
+- Production API can read and write Content records.
+- Dashboard displays live Content data from PostgreSQL.
+- Dashboard can create, read, update, and delete Content records.
+- Status changes work correctly.
+- Illegal status transitions are blocked.
+- Status history is preserved.
+- Netlify Dashboard → Railway API → PostgreSQL is verified end to end.
 
 ---
 
