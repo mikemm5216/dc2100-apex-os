@@ -1,0 +1,11 @@
+{
+  "name": "dc2100-apex-os",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "node apps/api/src/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
