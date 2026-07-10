@@ -38,3 +38,6 @@ service-account*.json
 credentials*.json
 *.pem
 *.key
+
+# Local Netlify folder
+.netlify
