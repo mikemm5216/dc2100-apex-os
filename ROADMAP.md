@@ -29,39 +29,54 @@ SOURCE WATCH
 ### Frontend
 Next.js
 
-### Hosting
-Firebase App Hosting
+### Frontend Hosting
+Netlify
 
 ### Database
-Cloud Firestore
+Railway PostgreSQL
 
 ### File Storage
-Firebase Storage
-
-Google Cloud Storage may be used only when needed.
+Railway Storage Bucket
 
 ### Authentication
-Firebase Authentication
+Application authentication is handled through the APEX API architecture.
 
-### Backend Jobs
-Cloud Functions
+The exact authentication library may be selected during implementation without changing the platform architecture.
 
-Cloud Run may be introduced only when Cloud Functions are insufficient.
+### Backend Services
+Railway APEX API
+
+Railway APEX Worker
+
+Railway Cron Jobs
 
 ### Version Control
 GitHub
 
 ### Automated AI
+
 Gemini API
 
-Primary automated use cases:
+Primary responsibilities:
 
+- large-volume signal analysis
 - viral structure analysis
-- signal classification
-- DC 2100 transformation
+- first-pass classification
+- batch news analysis
+- first-pass DC 2100 transformation
+- high-volume filtering
+
+OpenAI API
+
+Primary responsibilities:
+
+- high-value candidate reasoning
+- DC 2100 transformation QA
 - script generation
-- prompt generation
-- metadata generation
+- Hook variants
+- political satire calibration
+- prompt QA
+- structured Creative Pack generation
 
 ### High-Value Manual AI
 ChatGPT Plus
@@ -138,17 +153,21 @@ P0_RULES.md
 STATUS_FLOW.md
 
 ### Task 1.3
-Create Firebase project.
+Create Railway foundation.
 
-Enable:
+Create:
 
-- Firebase Authentication
-- Cloud Firestore
-- Firebase Storage
-- Firebase App Hosting
+- Railway Project
+- PostgreSQL service
+- APEX API service
+- APEX Worker service
+- Storage Bucket
+- environment variable structure
+
+Do not create unnecessary microservices during MVP.
 
 ### Task 1.4
-Create Dashboard skeleton.
+Create Next.js Dashboard skeleton and prepare Netlify deployment.
 
 Pages:
 
@@ -161,6 +180,8 @@ Pages:
 - Analytics
 
 Empty shells are acceptable on Day 1.
+
+Connect the GitHub repository to Netlify after the Dashboard skeleton runs successfully.
 
 ### Task 1.5
 Create and configure YouTube Channel.
@@ -186,9 +207,10 @@ Verify:
 
 ### Day 1 Deliverable
 
-- Website can authenticate.
 - GitHub push works.
-- Firebase deployment path is ready.
+- Netlify deployment path is ready.
+- Railway backend foundation is ready.
+- PostgreSQL connectivity path is ready.
 - YouTube channel setup is complete.
 
 ---
@@ -196,7 +218,7 @@ Verify:
 # DAY 2
 ## Database + Workflow State
 
-Create Firestore collections:
+Create PostgreSQL tables:
 
 - sources
 - signals
