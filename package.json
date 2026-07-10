@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "start": "node apps/api/src/server.js",
-    "worker": "node jobs/worker/index.js"
+    "worker": "node jobs/worker/index.js",
+    "migrate": "node scripts/migrate.js"
   },
   "engines": {
     "node": ">=20"
