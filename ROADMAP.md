@@ -537,13 +537,13 @@ Day 2 is complete only when:
 # DAY 3
 ## Sources + Viral Scanner
 
-**Status:** IN PROGRESS — Task 3.1 complete; Task 3.1.1A active
+**Status:** IN PROGRESS — Task 3.1 and Task 3.1.1A complete; Task 3.1.1B active
 
 ### Accelerated Day 3 Task Plan
 
 - Task 3.1 — Source Management Stack ✅ COMPLETE
-- Task 3.1.1A — Source + Candidate Bulk APIs and Automated Tests
-- Task 3.1.1B — Source + Candidate Multi-Select and Bulk Dashboard UX
+- Task 3.1.1A — Source + Candidate Bulk APIs and Automated Tests ✅ COMPLETE
+- Task 3.1.1B — Source + Candidate Multi-Select and Bulk Dashboard UX 🔄 ACTIVE
 - Task 3.2 — Real Watchlist Bootstrap
 - Task 3.3 — Viral Scanner Engine
 - Task 3.4 — Signals Dashboard and Day 3 End-to-End Verification

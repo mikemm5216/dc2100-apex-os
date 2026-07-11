@@ -96,6 +96,76 @@ function validatePriority(priority) {
   );
 }
 
+function parseBulkIds(
+  input,
+  {
+    fieldName,
+    type
+  }
+) {
+  if (!Array.isArray(input) || input.length === 0) {
+    return {
+      error: "VALIDATION_ERROR",
+      message: `${fieldName} must be a non-empty array.`
+    };
+  }
+
+  const ids = [
+    ...new Set(
+      input.map((value) => {
+        const normalized = String(value).trim();
+
+        return type === "content"
+          ? normalized.toUpperCase()
+          : normalized;
+      })
+    )
+  ];
+
+  if (ids.some((id) => !id)) {
+    return {
+      error: "VALIDATION_ERROR",
+      message: `${fieldName} cannot contain empty values.`
+    };
+  }
+
+  if (ids.length > 500) {
+    return {
+      error: "BULK_LIMIT_EXCEEDED",
+      message:
+        "A bulk operation can process at most 500 records."
+    };
+  }
+
+  if (
+    type === "numeric" &&
+    ids.some((id) => !/^[0-9]+$/.test(id))
+  ) {
+    return {
+      error: "VALIDATION_ERROR",
+      message: `${fieldName} must contain numeric IDs only.`
+    };
+  }
+
+  if (
+    type === "content" &&
+    ids.some(
+      (id) =>
+        !/^P0-[A-Z0-9]+-[A-Z0-9]+-[0-9]{3,}$/.test(id)
+    )
+  ) {
+    return {
+      error: "INVALID_CONTENT_ID",
+      message:
+        `${fieldName} must contain valid P0-{COUNTRY}-{CAR}-{NUMBER} IDs.`
+    };
+  }
+
+  return {
+    ids
+  };
+}
+
 function handleDatabaseError(res, error) {
   console.error("Database error:", error);
 
@@ -533,6 +603,131 @@ const server = http.createServer(async (req, res) => {
 
       return sendJson(res, 201, {
         data: created
+      });
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  // =======================================================
+  // PATCH /sources/bulk
+  // DELETE /sources/bulk
+  // =======================================================
+
+  if (
+    pathname === "/sources/bulk" &&
+    (
+      req.method === "PATCH" ||
+      req.method === "DELETE"
+    )
+  ) {
+    let body;
+
+    try {
+      body = await readJsonBody(req);
+    } catch (error) {
+      return sendJson(res, 400, {
+        error: error.message,
+        message:
+          "Request body must contain valid JSON."
+      });
+    }
+
+    const parsedIds = parseBulkIds(body.ids, {
+      fieldName: "ids",
+      type: "numeric"
+    });
+
+    if (parsedIds.error) {
+      return sendJson(res, 400, parsedIds);
+    }
+
+    const ids = parsedIds.ids;
+
+    if (req.method === "PATCH") {
+      const action = String(
+        body.action || ""
+      ).trim();
+
+      try {
+        let result;
+
+        if (
+          action === "enable" ||
+          action === "disable"
+        ) {
+          result = await pool.query(
+            `
+              UPDATE sources
+              SET enabled = $1
+              WHERE id = ANY($2::bigint[])
+              RETURNING id
+            `,
+            [
+              action === "enable",
+              ids
+            ]
+          );
+        } else if (action === "set_priority") {
+          if (!validatePriority(body.priority)) {
+            return sendJson(res, 400, {
+              error: "VALIDATION_ERROR",
+              message:
+                "priority must be an integer from 1 to 5."
+            });
+          }
+
+          result = await pool.query(
+            `
+              UPDATE sources
+              SET priority = $1
+              WHERE id = ANY($2::bigint[])
+              RETURNING id
+            `,
+            [
+              body.priority,
+              ids
+            ]
+          );
+        } else {
+          return sendJson(res, 400, {
+            error: "INVALID_BULK_ACTION",
+            message:
+              "action must be enable, disable, or set_priority."
+          });
+        }
+
+        return sendJson(res, 200, {
+          data: {
+            requested_count: ids.length,
+            updated_count: result.rowCount,
+            action,
+            source_ids: result.rows.map(
+              (row) => String(row.id)
+            )
+          }
+        });
+      } catch (error) {
+        return handleDatabaseError(res, error);
+      }
+    }
+
+    try {
+      const result = await pool.query(
+        `
+          DELETE FROM sources
+          WHERE id = ANY($1::bigint[])
+          RETURNING id, name
+        `,
+        [ids]
+      );
+
+      return sendJson(res, 200, {
+        data: {
+          requested_count: ids.length,
+          deleted_count: result.rowCount,
+          deleted_sources: result.rows
+        }
       });
     } catch (error) {
       return handleDatabaseError(res, error);
@@ -1049,7 +1244,7 @@ const server = http.createServer(async (req, res) => {
   // =======================================================
 
   const statusMatch = pathname.match(
-    /^\/contents\/([^/]+)\/status$/
+    /^\/contents\/(?!bulk\/)([^/]+)\/status$/
   );
 
   if (req.method === "PATCH" && statusMatch) {
@@ -1167,6 +1362,352 @@ const server = http.createServer(async (req, res) => {
 
       return sendJson(res, 200, {
         data: updated
+      });
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // Ignore rollback failure.
+      }
+
+      return handleDatabaseError(res, error);
+    } finally {
+      client.release();
+    }
+  }
+
+  // =======================================================
+  // PATCH /contents/bulk/status
+  // =======================================================
+
+  if (
+    req.method === "PATCH" &&
+    pathname === "/contents/bulk/status"
+  ) {
+    let body;
+
+    try {
+      body = await readJsonBody(req);
+    } catch (error) {
+      return sendJson(res, 400, {
+        error: error.message,
+        message:
+          "Request body must contain valid JSON."
+      });
+    }
+
+    const parsedIds = parseBulkIds(
+      body.content_ids,
+      {
+        fieldName: "content_ids",
+        type: "content"
+      }
+    );
+
+    if (parsedIds.error) {
+      return sendJson(res, 400, parsedIds);
+    }
+
+    const contentIds = parsedIds.ids;
+
+    const nextStatus = String(
+      body.status || ""
+    )
+      .trim()
+      .toUpperCase();
+
+    if (!VALID_STATUSES.has(nextStatus)) {
+      return sendJson(res, 400, {
+        error: "INVALID_STATUS",
+        message:
+          `${nextStatus || "(empty)"} is not a valid workflow status.`
+      });
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const currentResult = await client.query(
+        `
+          SELECT
+            id,
+            content_id,
+            status
+          FROM contents
+          WHERE content_id = ANY($1::text[])
+          ORDER BY id
+          FOR UPDATE
+        `,
+        [contentIds]
+      );
+
+      const foundIds = new Set(
+        currentResult.rows.map(
+          (row) => row.content_id
+        )
+      );
+
+      const missingIds = contentIds.filter(
+        (contentId) => !foundIds.has(contentId)
+      );
+
+      if (missingIds.length > 0) {
+        await client.query("ROLLBACK");
+
+        return sendJson(res, 404, {
+          error: "CONTENT_NOT_FOUND",
+          message:
+            "One or more Content Candidates were not found.",
+          missing_content_ids: missingIds
+        });
+      }
+
+      const invalidTransitions =
+        currentResult.rows
+          .map((row) => {
+            const allowed =
+              VALID_TRANSITIONS[row.status] || [];
+
+            if (allowed.includes(nextStatus)) {
+              return null;
+            }
+
+            return {
+              content_id: row.content_id,
+              current_status: row.status,
+              requested_status: nextStatus,
+              allowed_transitions: allowed
+            };
+          })
+          .filter(Boolean);
+
+      if (invalidTransitions.length > 0) {
+        await client.query("ROLLBACK");
+
+        return sendJson(res, 409, {
+          error: "INVALID_STATUS_TRANSITION",
+          message:
+            "The entire bulk status operation was rejected.",
+          invalid_transitions: invalidTransitions
+        });
+      }
+
+      const updateResult = await client.query(
+        `
+          UPDATE contents
+          SET status = $1
+          WHERE content_id = ANY($2::text[])
+          RETURNING content_id
+        `,
+        [
+          nextStatus,
+          contentIds
+        ]
+      );
+
+      await client.query(
+        `
+          INSERT INTO content_status_history (
+            content_id,
+            from_status,
+            to_status,
+            changed_by,
+            reason,
+            metadata
+          )
+          SELECT
+            history.content_id,
+            history.from_status,
+            $3,
+            $4,
+            $5,
+            $6::jsonb
+          FROM unnest(
+            $1::bigint[],
+            $2::text[]
+          ) AS history(
+            content_id,
+            from_status
+          )
+        `,
+        [
+          currentResult.rows.map(
+            (row) => row.id
+          ),
+          currentResult.rows.map(
+            (row) => row.status
+          ),
+          nextStatus,
+          String(
+            body.changed_by || "api"
+          ).trim() || "api",
+          body.reason || null,
+          JSON.stringify(body.metadata || {})
+        ]
+      );
+
+      await client.query("COMMIT");
+
+      return sendJson(res, 200, {
+        data: {
+          requested_count: contentIds.length,
+          updated_count: updateResult.rowCount,
+          target_status: nextStatus,
+          content_ids:
+            updateResult.rows.map(
+              (row) => row.content_id
+            )
+        }
+      });
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // Ignore rollback failure.
+      }
+
+      return handleDatabaseError(res, error);
+    } finally {
+      client.release();
+    }
+  }
+
+
+  // =======================================================
+  // PATCH /contents/bulk
+  // DELETE /contents/bulk
+  // =======================================================
+
+  if (
+    pathname === "/contents/bulk" &&
+    (
+      req.method === "PATCH" ||
+      req.method === "DELETE"
+    )
+  ) {
+    let body;
+
+    try {
+      body = await readJsonBody(req);
+    } catch (error) {
+      return sendJson(res, 400, {
+        error: error.message,
+        message:
+          "Request body must contain valid JSON."
+      });
+    }
+
+    const parsedIds = parseBulkIds(
+      body.content_ids,
+      {
+        fieldName: "content_ids",
+        type: "content"
+      }
+    );
+
+    if (parsedIds.error) {
+      return sendJson(res, 400, parsedIds);
+    }
+
+    const contentIds = parsedIds.ids;
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const existingResult = await client.query(
+        `
+          SELECT content_id
+          FROM contents
+          WHERE content_id = ANY($1::text[])
+          ORDER BY content_id
+          FOR UPDATE
+        `,
+        [contentIds]
+      );
+
+      const foundIds = new Set(
+        existingResult.rows.map(
+          (row) => row.content_id
+        )
+      );
+
+      const missingIds = contentIds.filter(
+        (contentId) => !foundIds.has(contentId)
+      );
+
+      if (missingIds.length > 0) {
+        await client.query("ROLLBACK");
+
+        return sendJson(res, 404, {
+          error: "CONTENT_NOT_FOUND",
+          message:
+            "One or more Content Candidates were not found.",
+          missing_content_ids: missingIds
+        });
+      }
+
+      if (req.method === "PATCH") {
+        if (!validatePriority(body.priority)) {
+          await client.query("ROLLBACK");
+
+          return sendJson(res, 400, {
+            error: "VALIDATION_ERROR",
+            message:
+              "priority must be an integer from 1 to 5."
+          });
+        }
+
+        const updateResult = await client.query(
+          `
+            UPDATE contents
+            SET priority = $1
+            WHERE content_id = ANY($2::text[])
+            RETURNING content_id
+          `,
+          [
+            body.priority,
+            contentIds
+          ]
+        );
+
+        await client.query("COMMIT");
+
+        return sendJson(res, 200, {
+          data: {
+            requested_count: contentIds.length,
+            updated_count: updateResult.rowCount,
+            priority: body.priority,
+            content_ids:
+              updateResult.rows.map(
+                (row) => row.content_id
+              )
+          }
+        });
+      }
+
+      const deleteResult = await client.query(
+        `
+          DELETE FROM contents
+          WHERE content_id = ANY($1::text[])
+          RETURNING content_id
+        `,
+        [contentIds]
+      );
+
+      await client.query("COMMIT");
+
+      return sendJson(res, 200, {
+        data: {
+          requested_count: contentIds.length,
+          deleted_count: deleteResult.rowCount,
+          content_ids:
+            deleteResult.rows.map(
+              (row) => row.content_id
+            )
+        }
       });
     } catch (error) {
       try {
