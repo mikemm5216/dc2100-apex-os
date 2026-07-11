@@ -200,3 +200,100 @@ export async function deleteContent(
     }
   );
 }
+
+export type SourceRecord = {
+  id: string;
+  name: string;
+  url: string;
+  platform: string;
+  category: string;
+  priority: number;
+  enabled: boolean;
+  last_scan_at: string | null;
+  created_at: string;
+  updated_at: string;
+
+  country_code: string | null;
+  country_name: string | null;
+
+  signal_count: number;
+};
+
+export type SourcesResponse = {
+  data: SourceRecord[];
+  count: number;
+};
+
+export type CreateSourceInput = {
+  name: string;
+  url: string;
+  platform: string;
+  category: string;
+  country_code?: string | null;
+  priority: number;
+  enabled?: boolean;
+};
+
+export type UpdateSourceInput = {
+  name?: string;
+  url?: string;
+  platform?: string;
+  category?: string;
+  country_code?: string | null;
+  priority?: number;
+  enabled?: boolean;
+};
+
+export async function fetchSources(
+  signal?: AbortSignal
+): Promise<SourcesResponse> {
+  return requestJson<SourcesResponse>(
+    "/sources",
+    {
+      method: "GET",
+      signal,
+    }
+  );
+}
+
+export async function createSource(
+  input: CreateSourceInput
+): Promise<SourceRecord> {
+  const response =
+    await requestJson<DataResponse<SourceRecord>>(
+      "/sources",
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      }
+    );
+
+  return response.data;
+}
+
+export async function updateSource(
+  sourceId: string,
+  input: UpdateSourceInput
+): Promise<SourceRecord> {
+  const response =
+    await requestJson<DataResponse<SourceRecord>>(
+      `/sources/${encodeURIComponent(sourceId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }
+    );
+
+  return response.data;
+}
+
+export async function deleteSource(
+  sourceId: string
+): Promise<void> {
+  await requestJson(
+    `/sources/${encodeURIComponent(sourceId)}`,
+    {
+      method: "DELETE",
+    }
+  );
+}

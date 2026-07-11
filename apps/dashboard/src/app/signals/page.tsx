@@ -1,10 +1,13 @@
 import { SectionPage } from "@/components/section-page";
+import { SourceManager } from "@/components/source-manager";
 
 export default function SignalsPage() {
   return (
     <SectionPage
       title="Signals"
-      description="Monitor discovered viral signals and source activity."
-    />
+      description="Manage source watchlists and monitor viral signal discovery."
+    >
+      <SourceManager />
+    </SectionPage>
   );
 }

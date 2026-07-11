@@ -272,6 +272,44 @@ async function generateContentId(
   return `${prefix}-${String(nextNumber).padStart(3, "0")}`;
 }
 
+
+async function getSourceById(queryable, sourceId) {
+  const result = await queryable.query(
+    `
+      SELECT
+        src.id,
+        src.name,
+        src.url,
+        src.platform,
+        src.category,
+        src.priority,
+        src.enabled,
+        src.last_scan_at,
+        src.created_at,
+        src.updated_at,
+
+        co.code AS country_code,
+        co.name AS country_name,
+
+        (
+          SELECT COUNT(*)::int
+          FROM signals sig
+          WHERE sig.source_id = src.id
+        ) AS signal_count
+
+      FROM sources src
+
+      LEFT JOIN countries co
+        ON co.id = src.country_id
+
+      WHERE src.id = $1
+    `,
+    [sourceId]
+  );
+
+  return result.rows[0] || null;
+}
+
 const server = http.createServer(async (req, res) => {
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
@@ -320,6 +358,423 @@ const server = http.createServer(async (req, res) => {
         status: "error",
         database: "disconnected"
       });
+    }
+  }
+
+  // =======================================================
+  // GET /sources
+  // POST /sources
+  // =======================================================
+
+  if (req.method === "GET" && pathname === "/sources") {
+    try {
+      const result = await pool.query(`
+        SELECT
+          src.id,
+          src.name,
+          src.url,
+          src.platform,
+          src.category,
+          src.priority,
+          src.enabled,
+          src.last_scan_at,
+          src.created_at,
+          src.updated_at,
+
+          co.code AS country_code,
+          co.name AS country_name,
+
+          (
+            SELECT COUNT(*)::int
+            FROM signals sig
+            WHERE sig.source_id = src.id
+          ) AS signal_count
+
+        FROM sources src
+
+        LEFT JOIN countries co
+          ON co.id = src.country_id
+
+        ORDER BY
+          src.enabled DESC,
+          src.priority ASC,
+          src.name ASC
+      `);
+
+      return sendJson(res, 200, {
+        data: result.rows,
+        count: result.rowCount
+      });
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  if (req.method === "POST" && pathname === "/sources") {
+    let body;
+
+    try {
+      body = await readJsonBody(req);
+    } catch (error) {
+      return sendJson(res, 400, {
+        error: error.message,
+        message: "Request body must contain valid JSON."
+      });
+    }
+
+    const name = String(body.name || "").trim();
+    const sourceUrl = String(body.url || "").trim();
+    const platform = String(body.platform || "").trim();
+    const category = String(body.category || "").trim();
+
+    const countryCode = body.country_code
+      ? String(body.country_code).trim().toUpperCase()
+      : null;
+
+    const priority =
+      body.priority === undefined ? 3 : body.priority;
+
+    const enabled =
+      body.enabled === undefined ? true : body.enabled;
+
+    if (!name || !sourceUrl || !platform || !category) {
+      return sendJson(res, 400, {
+        error: "VALIDATION_ERROR",
+        message:
+          "name, url, platform, and category are required."
+      });
+    }
+
+    try {
+      const parsedUrl = new URL(sourceUrl);
+
+      if (
+        parsedUrl.protocol !== "http:" &&
+        parsedUrl.protocol !== "https:"
+      ) {
+        throw new Error("Unsupported URL protocol.");
+      }
+    } catch {
+      return sendJson(res, 400, {
+        error: "INVALID_URL",
+        message: "url must be a valid HTTP or HTTPS URL."
+      });
+    }
+
+    if (!validatePriority(priority)) {
+      return sendJson(res, 400, {
+        error: "VALIDATION_ERROR",
+        message: "priority must be an integer from 1 to 5."
+      });
+    }
+
+    if (typeof enabled !== "boolean") {
+      return sendJson(res, 400, {
+        error: "VALIDATION_ERROR",
+        message: "enabled must be a boolean."
+      });
+    }
+
+    try {
+      let countryId = null;
+
+      if (countryCode) {
+        countryId = await resolveCountryId(
+          pool,
+          countryCode
+        );
+
+        if (!countryId) {
+          return sendJson(res, 400, {
+            error: "INVALID_COUNTRY",
+            message:
+              `Country ${countryCode} does not exist or is disabled.`
+          });
+        }
+      }
+
+      const result = await pool.query(
+        `
+          INSERT INTO sources (
+            name,
+            url,
+            platform,
+            category,
+            country_id,
+            priority,
+            enabled
+          )
+          VALUES (
+            $1,
+            $2,
+            $3,
+            $4,
+            $5,
+            $6,
+            $7
+          )
+          RETURNING id
+        `,
+        [
+          name,
+          sourceUrl,
+          platform,
+          category,
+          countryId,
+          priority,
+          enabled
+        ]
+      );
+
+      const created = await getSourceById(
+        pool,
+        result.rows[0].id
+      );
+
+      return sendJson(res, 201, {
+        data: created
+      });
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  // =======================================================
+  // GET /sources/:id
+  // PATCH /sources/:id
+  // DELETE /sources/:id
+  // =======================================================
+
+  const sourceMatch = pathname.match(
+    /^\/sources\/([0-9]+)$/
+  );
+
+  if (sourceMatch) {
+    const sourceId = sourceMatch[1];
+
+    if (req.method === "GET") {
+      try {
+        const source = await getSourceById(
+          pool,
+          sourceId
+        );
+
+        if (!source) {
+          return sendJson(res, 404, {
+            error: "SOURCE_NOT_FOUND",
+            message: `Source ${sourceId} was not found.`
+          });
+        }
+
+        return sendJson(res, 200, {
+          data: source
+        });
+      } catch (error) {
+        return handleDatabaseError(res, error);
+      }
+    }
+
+    if (req.method === "PATCH") {
+      let body;
+
+      try {
+        body = await readJsonBody(req);
+      } catch (error) {
+        return sendJson(res, 400, {
+          error: error.message,
+          message: "Request body must contain valid JSON."
+        });
+      }
+
+      const updates = [];
+      const values = [];
+
+      function addSourceUpdate(column, value) {
+        values.push(value);
+        updates.push(`${column} = $${values.length}`);
+      }
+
+      if (body.name !== undefined) {
+        const value = String(body.name).trim();
+
+        if (!value) {
+          return sendJson(res, 400, {
+            error: "VALIDATION_ERROR",
+            message: "name cannot be empty."
+          });
+        }
+
+        addSourceUpdate("name", value);
+      }
+
+      if (body.url !== undefined) {
+        const value = String(body.url).trim();
+
+        try {
+          const parsedUrl = new URL(value);
+
+          if (
+            parsedUrl.protocol !== "http:" &&
+            parsedUrl.protocol !== "https:"
+          ) {
+            throw new Error("Unsupported URL protocol.");
+          }
+        } catch {
+          return sendJson(res, 400, {
+            error: "INVALID_URL",
+            message:
+              "url must be a valid HTTP or HTTPS URL."
+          });
+        }
+
+        addSourceUpdate("url", value);
+      }
+
+      if (body.platform !== undefined) {
+        const value = String(body.platform).trim();
+
+        if (!value) {
+          return sendJson(res, 400, {
+            error: "VALIDATION_ERROR",
+            message: "platform cannot be empty."
+          });
+        }
+
+        addSourceUpdate("platform", value);
+      }
+
+      if (body.category !== undefined) {
+        const value = String(body.category).trim();
+
+        if (!value) {
+          return sendJson(res, 400, {
+            error: "VALIDATION_ERROR",
+            message: "category cannot be empty."
+          });
+        }
+
+        addSourceUpdate("category", value);
+      }
+
+      if (body.priority !== undefined) {
+        if (!validatePriority(body.priority)) {
+          return sendJson(res, 400, {
+            error: "VALIDATION_ERROR",
+            message:
+              "priority must be an integer from 1 to 5."
+          });
+        }
+
+        addSourceUpdate("priority", body.priority);
+      }
+
+      if (body.enabled !== undefined) {
+        if (typeof body.enabled !== "boolean") {
+          return sendJson(res, 400, {
+            error: "VALIDATION_ERROR",
+            message: "enabled must be a boolean."
+          });
+        }
+
+        addSourceUpdate("enabled", body.enabled);
+      }
+
+      if (body.country_code !== undefined) {
+        if (
+          body.country_code === null ||
+          String(body.country_code).trim() === ""
+        ) {
+          addSourceUpdate("country_id", null);
+        } else {
+          const countryCode = String(
+            body.country_code
+          )
+            .trim()
+            .toUpperCase();
+
+          const countryId = await resolveCountryId(
+            pool,
+            countryCode
+          );
+
+          if (!countryId) {
+            return sendJson(res, 400, {
+              error: "INVALID_COUNTRY",
+              message:
+                `Country ${countryCode} does not exist or is disabled.`
+            });
+          }
+
+          addSourceUpdate("country_id", countryId);
+        }
+      }
+
+      if (updates.length === 0) {
+        return sendJson(res, 400, {
+          error: "NO_UPDATES",
+          message:
+            "Provide at least one editable source field."
+        });
+      }
+
+      values.push(sourceId);
+
+      try {
+        const updateResult = await pool.query(
+          `
+            UPDATE sources
+            SET ${updates.join(", ")}
+            WHERE id = $${values.length}
+            RETURNING id
+          `,
+          values
+        );
+
+        if (updateResult.rowCount === 0) {
+          return sendJson(res, 404, {
+            error: "SOURCE_NOT_FOUND",
+            message: `Source ${sourceId} was not found.`
+          });
+        }
+
+        const updated = await getSourceById(
+          pool,
+          sourceId
+        );
+
+        return sendJson(res, 200, {
+          data: updated
+        });
+      } catch (error) {
+        return handleDatabaseError(res, error);
+      }
+    }
+
+    if (req.method === "DELETE") {
+      try {
+        const result = await pool.query(
+          `
+            DELETE FROM sources
+            WHERE id = $1
+            RETURNING id, name
+          `,
+          [sourceId]
+        );
+
+        if (result.rowCount === 0) {
+          return sendJson(res, 404, {
+            error: "SOURCE_NOT_FOUND",
+            message: `Source ${sourceId} was not found.`
+          });
+        }
+
+        return sendJson(res, 200, {
+          data: result.rows[0],
+          deleted: true
+        });
+      } catch (error) {
+        return handleDatabaseError(res, error);
+      }
     }
   }
 
