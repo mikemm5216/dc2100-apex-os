@@ -376,18 +376,36 @@ export type SignalView =
   | "top30";
 
 export type SignalSort =
-  | "rank_score"
   | "views"
   | "views_per_day"
+  | "views_per_hour"
   | "growth_velocity"
-  | "recency";
+  | "recency"
+  | "rank_score";
 
 export type SignalDurationBucket =
   | "ALL"
   | "UNDER_10"
   | "10_TO_20"
   | "20_TO_40"
-  | "OVER_40";
+  | "41_TO_60"
+  | "61_TO_180";
+
+export type SignalShortFormat =
+  | "CLASSIC_SHORT"
+  | "EXTENDED_SHORT"
+  | "NOT_SHORT";
+
+export type SignalViralTier =
+  | "PROVEN"
+  | "RISING"
+  | "WATCH"
+  | "UNQUALIFIED";
+
+export type SignalShortRejectionReason =
+  | "MISSING_DURATION"
+  | "ZERO_DURATION"
+  | "OVER_180_SECONDS";
 
 export type SignalRecord = {
   id: string;
@@ -406,8 +424,15 @@ export type SignalRecord = {
 
   views: string;
   views_per_day: string | null;
+  views_per_hour: string | null;
   age_hours: string | null;
   growth_velocity: string | null;
+
+  is_short: boolean;
+  short_format: SignalShortFormat;
+  short_rejection_reason:
+    SignalShortRejectionReason | null;
+  viral_tier: SignalViralTier;
 
   qualified: boolean;
   rank_score: string | null;
@@ -417,7 +442,9 @@ export type SignalRecord = {
     comments?: number;
     source_name?: string;
     duration_iso?: string;
-    duration_bucket?: SignalDurationBucket | "UNKNOWN";
+    duration_bucket?: string;
+    short_format?: SignalShortFormat;
+    viral_tier?: SignalViralTier;
     privacy_status?: string;
     scanner_run_id?: string;
     live_broadcast_content?: string;
@@ -435,6 +462,9 @@ export type SignalFilters = {
   view: SignalView;
   window_days: 3 | 7 | 14 | 30;
   duration_bucket: SignalDurationBucket;
+  shorts_only: boolean;
+  viral_tier: SignalViralTier | "ALL";
+  short_format: SignalShortFormat | "ALL";
   sort: SignalSort;
   source_id: string | null;
   q: string;
@@ -453,6 +483,9 @@ export type FetchSignalsInput = {
   view?: SignalView;
   window_days?: 3 | 7 | 14 | 30;
   duration_bucket?: SignalDurationBucket;
+  shorts_only?: boolean;
+  viral_tier?: SignalViralTier | "ALL";
+  short_format?: SignalShortFormat | "ALL";
   sort?: SignalSort;
   source_id?: string | null;
   q?: string;
@@ -487,6 +520,14 @@ export type ScannerRun = {
 
     max_age_days?: number;
     max_results_per_source?: number;
+
+    shorts_accepted?: number;
+    long_videos_rejected?: number;
+    proven_count?: number;
+    rising_count?: number;
+    watch_count?: number;
+    unqualified_count?: number;
+    qualified_count?: number;
   };
 
   source_count: number;
@@ -538,6 +579,27 @@ export async function fetchSignals(
     query.set(
       "duration_bucket",
       input.duration_bucket
+    );
+  }
+
+  if (input.shorts_only !== undefined) {
+    query.set(
+      "shorts_only",
+      String(input.shorts_only)
+    );
+  }
+
+  if (input.viral_tier) {
+    query.set(
+      "viral_tier",
+      input.viral_tier
+    );
+  }
+
+  if (input.short_format) {
+    query.set(
+      "short_format",
+      input.short_format
     );
   }
 

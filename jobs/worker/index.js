@@ -121,6 +121,18 @@ async function pollScannerQueue() {
             result.insertedCount,
           updated_count:
             result.updatedCount,
+          shorts_accepted:
+            result.shortsAccepted,
+          long_videos_rejected:
+            result.longVideosRejected,
+          proven_count:
+            result.provenCount,
+          rising_count:
+            result.risingCount,
+          watch_count:
+            result.watchCount,
+          unqualified_count:
+            result.unqualifiedCount,
           qualified_count:
             result.qualifiedCount,
           quota_units_estimated:

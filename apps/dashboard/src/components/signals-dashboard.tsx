@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -20,13 +19,32 @@ import type {
   ScannerRun,
   SignalDurationBucket,
   SignalRecord,
+  SignalShortFormat,
   SignalsResponse,
   SignalSort,
   SignalView,
+  SignalViralTier,
   SourceRecord,
 } from "@/lib/api";
 
 const activeRunStatuses = new Set(["QUEUED", "RUNNING"]);
+
+const viralTierBadgeStyles: Record<SignalViralTier, string> = {
+  PROVEN:
+    "border-emerald-900 bg-emerald-950/60 text-emerald-300",
+  RISING:
+    "border-orange-900 bg-orange-950/60 text-orange-300",
+  WATCH:
+    "border-sky-900 bg-sky-950/60 text-sky-300",
+  UNQUALIFIED:
+    "border-neutral-700 bg-neutral-900 text-neutral-400",
+};
+
+const shortFormatLabels: Record<SignalShortFormat, string> = {
+  CLASSIC_SHORT: "Classic Short",
+  EXTENDED_SHORT: "Extended Short",
+  NOT_SHORT: "Not Short",
+};
 
 function numeric(value: string | number | null | undefined) {
   const parsed = Number(value);
@@ -79,13 +97,22 @@ export function SignalsDashboard() {
     useState<SignalView>("top100");
 
   const [windowDays, setWindowDays] =
-    useState<3 | 7 | 14 | 30>(30);
+    useState<3 | 7 | 14 | 30>(14);
 
   const [durationBucket, setDurationBucket] =
     useState<SignalDurationBucket>("ALL");
 
+  const [shortsOnly, setShortsOnly] =
+    useState(true);
+
+  const [viralTier, setViralTier] =
+    useState<SignalViralTier | "ALL">("ALL");
+
+  const [shortFormat, setShortFormat] =
+    useState<SignalShortFormat | "ALL">("ALL");
+
   const [sort, setSort] =
-    useState<SignalSort>("rank_score");
+    useState<SignalSort>("views");
 
   const [sourceId, setSourceId] =
     useState("");
@@ -117,8 +144,10 @@ export function SignalsDashboard() {
   const [reloadKey, setReloadKey] =
     useState(0);
 
-  const loadSignals = useCallback(
-    async (signal?: AbortSignal) => {
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadSignals() {
       setIsLoading(true);
       setError(null);
 
@@ -128,13 +157,16 @@ export function SignalsDashboard() {
             view,
             window_days: windowDays,
             duration_bucket: durationBucket,
+            shorts_only: shortsOnly,
+            viral_tier: viralTier,
+            short_format: shortFormat,
             sort,
             source_id: sourceId || null,
             q: query,
             limit: view === "top30" ? 30 : 100,
             offset: 0,
           },
-          signal
+          controller.signal
         );
 
         setResponse(payload);
@@ -152,28 +184,27 @@ export function SignalsDashboard() {
             : "Failed to load signals."
         );
       } finally {
-        if (!signal?.aborted) {
+        if (!controller.signal.aborted) {
           setIsLoading(false);
         }
       }
-    },
-    [
-      durationBucket,
-      query,
-      sort,
-      sourceId,
-      view,
-      windowDays,
-    ]
-  );
+    }
 
-  useEffect(() => {
-    const controller = new AbortController();
-
-    loadSignals(controller.signal);
+    loadSignals();
 
     return () => controller.abort();
-  }, [loadSignals, reloadKey]);
+  }, [
+    durationBucket,
+    query,
+    reloadKey,
+    shortFormat,
+    shortsOnly,
+    sort,
+    sourceId,
+    view,
+    viralTier,
+    windowDays,
+  ]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -245,15 +276,22 @@ export function SignalsDashboard() {
   const signals: SignalRecord[] =
     response?.data ?? [];
 
+  const visibleShorts = signals.filter(
+    (signal) => signal.is_short
+  ).length;
+
+  const tierCounts = signals.reduce(
+    (counts, signal) => {
+      counts[signal.viral_tier] =
+        (counts[signal.viral_tier] ?? 0) + 1;
+      return counts;
+    },
+    {} as Partial<Record<SignalViralTier, number>>
+  );
+
   const qualifiedVisible = signals.filter(
     (signal) => signal.qualified
   ).length;
-
-  const highestRank = signals.reduce(
-    (highest, signal) =>
-      Math.max(highest, numeric(signal.rank_score)),
-    0
-  );
 
   function handleSearch(
     event: FormEvent<HTMLFormElement>
@@ -291,7 +329,7 @@ export function SignalsDashboard() {
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-orange-950/70 bg-gradient-to-r from-orange-950/40 to-neutral-950 px-5 py-5">
           <div>
             <p className="text-xs font-medium uppercase tracking-[0.25em] text-orange-500">
-              Viral Signal Radar
+              Vehicle Shorts Traffic Radar
             </p>
 
             <h2 className="mt-2 text-2xl font-semibold text-white">
@@ -299,8 +337,8 @@ export function SignalsDashboard() {
             </h2>
 
             <p className="mt-1 text-sm text-neutral-400">
-              Rank emerging automotive topics by velocity,
-              reach, and recency.
+              Automotive YouTube Shorts ranked by actual
+              views first.
             </p>
           </div>
 
@@ -363,7 +401,7 @@ export function SignalsDashboard() {
         </div>
 
         {scannerRun && (
-          <div className="grid gap-3 border-b border-neutral-800 bg-neutral-900/40 px-5 py-4 sm:grid-cols-2 lg:grid-cols-6">
+          <div className="grid gap-3 border-b border-neutral-800 bg-neutral-900/40 px-5 py-4 sm:grid-cols-2 lg:grid-cols-8">
             <div>
               <p className="text-[11px] uppercase text-neutral-500">
                 Run
@@ -403,6 +441,25 @@ export function SignalsDashboard() {
 
             <div>
               <p className="text-[11px] uppercase text-neutral-500">
+                Shorts
+              </p>
+              <p className="mt-1 text-sm text-white">
+                {scannerRun.summary?.shorts_accepted ?? "—"}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-[11px] uppercase text-neutral-500">
+                Long Rejected
+              </p>
+              <p className="mt-1 text-sm text-neutral-300">
+                {scannerRun.summary?.long_videos_rejected ??
+                  "—"}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-[11px] uppercase text-neutral-500">
                 Qualified
               </p>
               <p className="mt-1 text-sm text-emerald-400">
@@ -421,12 +478,13 @@ export function SignalsDashboard() {
           </div>
         )}
 
-        <div className="grid gap-px bg-neutral-800 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-px bg-neutral-800 sm:grid-cols-2 lg:grid-cols-5">
           {[
-            ["Filtered Signals", response?.total_count ?? 0],
-            ["Visible", signals.length],
+            ["Visible Shorts", visibleShorts],
+            ["Proven", tierCounts.PROVEN ?? 0],
+            ["Rising", tierCounts.RISING ?? 0],
+            ["Watch", tierCounts.WATCH ?? 0],
             ["Qualified", qualifiedVisible],
-            ["Highest Rank", highestRank.toFixed(1)],
           ].map(([label, value]) => (
             <div
               key={label}
@@ -477,7 +535,7 @@ export function SignalsDashboard() {
           </button>
         </div>
 
-        <div className="grid gap-3 border-b border-neutral-800 bg-neutral-900/30 p-4 md:grid-cols-2 xl:grid-cols-6">
+        <div className="grid gap-3 border-b border-neutral-800 bg-neutral-900/30 p-4 md:grid-cols-2 xl:grid-cols-4">
           <form
             onSubmit={handleSearch}
             className="flex gap-2 md:col-span-2"
@@ -498,6 +556,58 @@ export function SignalsDashboard() {
               Search
             </button>
           </form>
+
+          <label className="flex items-center justify-between gap-2 rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-200">
+            <span>Shorts only</span>
+            <input
+              type="checkbox"
+              checked={shortsOnly}
+              onChange={(event) =>
+                setShortsOnly(event.target.checked)
+              }
+            />
+          </label>
+
+          <select
+            value={viralTier}
+            onChange={(event) =>
+              setViralTier(
+                event.target.value as
+                  | SignalViralTier
+                  | "ALL"
+              )
+            }
+            className="rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white"
+          >
+            <option value="ALL">All viral tiers</option>
+            <option value="PROVEN">Proven</option>
+            <option value="RISING">Rising</option>
+            <option value="WATCH">Watch</option>
+            <option value="UNQUALIFIED">
+              Unqualified
+            </option>
+          </select>
+
+          <select
+            value={shortFormat}
+            onChange={(event) =>
+              setShortFormat(
+                event.target.value as
+                  | SignalShortFormat
+                  | "ALL"
+              )
+            }
+            className="rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white"
+          >
+            <option value="ALL">All short formats</option>
+            <option value="CLASSIC_SHORT">
+              Classic Short (1–60s)
+            </option>
+            <option value="EXTENDED_SHORT">
+              Extended Short (61–180s)
+            </option>
+            <option value="NOT_SHORT">Not Short</option>
+          </select>
 
           <select
             value={windowDays}
@@ -533,7 +643,8 @@ export function SignalsDashboard() {
             <option value="UNDER_10">Under 10 sec</option>
             <option value="10_TO_20">10–20 sec</option>
             <option value="20_TO_40">21–40 sec</option>
-            <option value="OVER_40">Over 40 sec</option>
+            <option value="41_TO_60">41–60 sec</option>
+            <option value="61_TO_180">61–180 sec</option>
           </select>
 
           <select
@@ -543,15 +654,20 @@ export function SignalsDashboard() {
             }
             className="rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white"
           >
-            <option value="rank_score">Rank score</option>
-            <option value="growth_velocity">
-              Growth velocity
-            </option>
+            <option value="views">Actual views</option>
             <option value="views_per_day">
               Views per day
             </option>
-            <option value="views">Total views</option>
+            <option value="views_per_hour">
+              Views per hour
+            </option>
+            <option value="growth_velocity">
+              Growth velocity
+            </option>
             <option value="recency">Most recent</option>
+            <option value="rank_score">
+              Rank score (aux)
+            </option>
           </select>
 
           <select
@@ -639,6 +755,22 @@ export function SignalsDashboard() {
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                            viralTierBadgeStyles[
+                              signal.viral_tier
+                            ]
+                          }`}
+                        >
+                          {signal.viral_tier}
+                        </span>
+
+                        <span className="rounded-full border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-[10px] font-medium text-neutral-400">
+                          {shortFormatLabels[
+                            signal.short_format
+                          ] ?? signal.short_format}
+                        </span>
+
                         {signal.qualified && (
                           <span className="rounded-full border border-emerald-900 bg-emerald-950/60 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
                             QUALIFIED
@@ -674,22 +806,16 @@ export function SignalsDashboard() {
 
                     <div className="rounded-lg border border-orange-950 bg-orange-950/20 px-3 py-2 text-right">
                       <p className="text-[10px] uppercase tracking-wider text-orange-500">
-                        Rank
+                        Actual Views
                       </p>
-                      <p className="mt-1 font-mono text-xl font-semibold text-orange-300">
-                        {numeric(
-                          signal.rank_score
-                        ).toFixed(1)}
+                      <p className="mt-1 font-mono text-3xl font-bold text-orange-300">
+                        {compactNumber(signal.views)}
                       </p>
                     </div>
                   </div>
 
-                  <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
                     {[
-                      [
-                        "Views",
-                        compactNumber(signal.views),
-                      ],
                       [
                         "Views / Day",
                         compactNumber(
@@ -697,9 +823,9 @@ export function SignalsDashboard() {
                         ),
                       ],
                       [
-                        "Velocity / Hr",
+                        "Views / Hour",
                         compactNumber(
-                          signal.growth_velocity
+                          signal.views_per_hour
                         ),
                       ],
                       [
@@ -707,6 +833,24 @@ export function SignalsDashboard() {
                         `${numeric(
                           signal.age_hours
                         ).toFixed(1)}h`,
+                      ],
+                      [
+                        "Duration",
+                        formatDuration(
+                          signal.duration_seconds
+                        ),
+                      ],
+                      [
+                        "Format",
+                        shortFormatLabels[
+                          signal.short_format
+                        ] ?? signal.short_format,
+                      ],
+                      [
+                        "Rank (aux)",
+                        numeric(
+                          signal.rank_score
+                        ).toFixed(1),
                       ],
                     ].map(([label, value]) => (
                       <div
