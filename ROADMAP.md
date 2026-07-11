@@ -28,6 +28,23 @@ SOURCE WATCH
 
 ---
 
+## Accelerated Execution Rule
+
+The 10-day schedule combines tightly coupled implementation stages without removing acceptance criteria, automated testing, production verification, or operational safeguards.
+
+Timeline compression must never bypass:
+
+- database migration control
+- workflow transition validation
+- automated API tests
+- Dashboard production verification
+- YouTube publishing verification
+- analytics return verification
+
+Day or Task numbering changes must be reflected in this Roadmap before implementation continues.
+
+---
+
 ## Fixed MVP Architecture
 
 ### Frontend
@@ -115,6 +132,8 @@ Other platforms are Phase 2.
 
 # DAY 1
 ## Foundation + Channel Setup
+
+**Status:** COMPLETE
 
 ### Task 1.1
 Create GitHub repository and project structure.
@@ -221,6 +240,8 @@ Verify:
 
 # DAY 2
 ## Database + Workflow State
+
+**Status:** COMPLETE
 
 Day 2 establishes the minimum relational data and workflow foundation required for the APEX OS Content Candidate loop.
 
@@ -330,16 +351,16 @@ The purpose of the Day 2 schema is to validate the complete Content Candidate wo
 
 The following downstream tables are intentionally deferred until their owning workflow stages:
 
-Day 7:
+Day 5:
 - creative_packs
 
-Day 8:
+Day 5:
 - videos
 
-Day 9:
+Day 6:
 - posts
 
-Day 10:
+Day 6:
 - metric_snapshots
 
 This prevents premature schema design and keeps database development aligned with actual workflow implementation.
@@ -514,7 +535,22 @@ Day 2 is complete only when:
 ---
 
 # DAY 3
-## Source Watchlist
+## Sources + Viral Scanner
+
+**Status:** IN PROGRESS — Task 3.1 complete; Task 3.1.1A active
+
+### Accelerated Day 3 Task Plan
+
+- Task 3.1 — Source Management Stack ✅ COMPLETE
+- Task 3.1.1A — Source + Candidate Bulk APIs and Automated Tests
+- Task 3.1.1B — Source + Candidate Multi-Select and Bulk Dashboard UX
+- Task 3.2 — Real Watchlist Bootstrap
+- Task 3.3 — Viral Scanner Engine
+- Task 3.4 — Signals Dashboard and Day 3 End-to-End Verification
+
+Task 3.1.1 is a scalability requirement and must be completed before loading the real watchlist.
+
+### Source Watchlist
 
 Car source categories:
 
@@ -567,10 +603,7 @@ Initial target:
 
 Do not attempt to build a 200-source database during MVP.
 
----
-
-# DAY 4
-## Viral Scanner
+### Viral Scanner
 
 Fetch YouTube candidate metadata:
 
@@ -619,8 +652,12 @@ Scanner dashboard outputs:
 
 ---
 
-# DAY 5
-## Structure Analyzer
+# DAY 4
+## Structure Analyzer + DC 2100 Transformer
+
+**Status:** PLANNED
+
+### Structure Analyzer
 
 Analyzer JSON schema must include:
 
@@ -646,10 +683,7 @@ Purpose:
 
 Compare automated Gemini analysis against high-value manual judgment.
 
----
-
-# DAY 6
-## DC 2100 Transformer
+### DC 2100 Transformer
 
 Transformer always reads:
 
@@ -695,8 +729,12 @@ REAL EVENT
 
 ---
 
-# DAY 7
-## Creative Pack Factory
+# DAY 5
+## Creative Pack Factory + Generation Queue
+
+**Status:** PLANNED
+
+### Creative Pack Factory
 
 Script Generator output:
 
@@ -741,10 +779,7 @@ Version tracking:
 - Created Time
 - Approved Version
 
----
-
-# DAY 8
-## Generation Queue
+### Generation Queue
 
 Queue fields:
 
@@ -800,8 +835,12 @@ Reject reasons:
 
 ---
 
-# DAY 9
-## YouTube Publisher
+# DAY 6
+## YouTube Publisher + Analytics + YPP Mission Control
+
+**Status:** PLANNED
+
+### YouTube Publisher
 
 Implement:
 
@@ -826,10 +865,7 @@ On failure preserve:
 - Metadata
 - Video association
 
----
-
-# DAY 10
-## Analytics + YPP Mission Control
+### Analytics + YPP Mission Control
 
 Import at minimum:
 
@@ -870,8 +906,10 @@ YPP Mission Control displays:
 
 ---
 
-# DAY 11
+# DAY 7
 ## Full End-to-End Test
+
+**Status:** PLANNED
 
 Run 3 real videos through:
 
@@ -898,8 +936,10 @@ No new features.
 
 ---
 
-# DAY 12
+# DAY 8
 ## Pilot Day 1
+
+**Status:** PLANNED
 
 Publish 3–5 Shorts.
 
@@ -934,8 +974,10 @@ Measure:
 
 ---
 
-# DAY 13
-## Pilot Day 2 + P0 Preparation
+# DAY 9
+## Pilot Day 2 + Fix + P0 Preparation
+
+**Status:** PLANNED
 
 Publish another 3–5 Shorts.
 
@@ -981,8 +1023,10 @@ Channel warm-up check:
 
 ---
 
-# DAY 14
-## GO LIVE
+# DAY 10
+## P0 Global Qualifiers Go Live
+
+**Status:** PLANNED
 
 Launch:
 
@@ -1037,7 +1081,6 @@ YouTube scheduled publishing.
 Following day:
 
 Analytics return and leaderboards update.
-
 ---
 
 # MVP Success Criteria
@@ -1081,7 +1124,7 @@ Dashboard continuously displays:
 
 ---
 
-# Forbidden During 14-Day MVP
+# Forbidden During 10-Day MVP
 
 Do not build:
 
