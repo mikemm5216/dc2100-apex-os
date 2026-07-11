@@ -567,6 +567,20 @@ Initial target:
 
 Do not attempt to build a 200-source database during MVP.
 
+### Task 3.1.1 — Dashboard Bulk Operations Standardization
+
+Implement consistent multi-select, filtering, and bulk operations for:
+- Source Management Dashboard
+- Candidates Dashboard
+
+Required features:
+- Backend bulk endpoints (PATCH/DELETE) with transactional safety and limit of 500 records.
+- UI multi-select with select all/clear logic.
+- UI filters for text search and categorical data.
+- UI bulk toolbars.
+- Strict state machine validation on bulk status moves.
+
+
 ---
 
 # DAY 4
