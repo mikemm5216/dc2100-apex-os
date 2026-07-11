@@ -369,3 +369,248 @@ export async function bulkDeleteContents(
   );
   return response.data;
 }
+
+export type SignalView =
+  | "top100"
+  | "qualified"
+  | "top30";
+
+export type SignalSort =
+  | "rank_score"
+  | "views"
+  | "views_per_day"
+  | "growth_velocity"
+  | "recency";
+
+export type SignalDurationBucket =
+  | "ALL"
+  | "UNDER_10"
+  | "10_TO_20"
+  | "20_TO_40"
+  | "OVER_40";
+
+export type SignalRecord = {
+  id: string;
+  source_id: string | null;
+  external_id: string | null;
+
+  title: string;
+  url: string;
+
+  channel_id: string | null;
+  channel_title: string | null;
+  thumbnail_url: string | null;
+
+  published_at: string | null;
+  duration_seconds: number | null;
+
+  views: string;
+  views_per_day: string | null;
+  age_hours: string | null;
+  growth_velocity: string | null;
+
+  qualified: boolean;
+  rank_score: string | null;
+
+  raw_metrics: {
+    likes?: number;
+    comments?: number;
+    source_name?: string;
+    duration_iso?: string;
+    duration_bucket?: SignalDurationBucket | "UNKNOWN";
+    privacy_status?: string;
+    scanner_run_id?: string;
+    live_broadcast_content?: string;
+    [key: string]: unknown;
+  };
+
+  last_scanned_at: string | null;
+
+  source_name: string | null;
+  source_priority: number | null;
+  source_country_code: string | null;
+};
+
+export type SignalFilters = {
+  view: SignalView;
+  window_days: 3 | 7 | 14 | 30;
+  duration_bucket: SignalDurationBucket;
+  sort: SignalSort;
+  source_id: string | null;
+  q: string;
+  limit: number;
+  offset: number;
+};
+
+export type SignalsResponse = {
+  data: SignalRecord[];
+  count: number;
+  total_count: number;
+  filters: SignalFilters;
+};
+
+export type FetchSignalsInput = {
+  view?: SignalView;
+  window_days?: 3 | 7 | 14 | 30;
+  duration_bucket?: SignalDurationBucket;
+  sort?: SignalSort;
+  source_id?: string | null;
+  q?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export type ScannerRunStatus =
+  | "QUEUED"
+  | "RUNNING"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELLED";
+
+export type ScannerRun = {
+  id: string;
+  status: ScannerRunStatus;
+
+  request_payload: {
+    source_ids: string[] | null;
+    max_results_per_source: number;
+    max_age_days: 3 | 7 | 14 | 30;
+    force_refresh_channels: boolean;
+  };
+
+  summary: {
+    errors?: Array<{
+      source_id?: string;
+      source_name?: string;
+      message?: string;
+    }>;
+
+    max_age_days?: number;
+    max_results_per_source?: number;
+  };
+
+  source_count: number;
+  resolved_source_count: number;
+  failed_source_count: number;
+
+  video_count: number;
+  inserted_count: number;
+  updated_count: number;
+  qualified_count: number;
+
+  quota_units_estimated: number;
+
+  error_message: string | null;
+
+  locked_by: string | null;
+  locked_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type QueueScannerRunInput = {
+  source_ids?: Array<string | number>;
+  max_results_per_source?: number;
+  max_age_days?: 3 | 7 | 14 | 30;
+  force_refresh_channels?: boolean;
+};
+
+export async function fetchSignals(
+  input: FetchSignalsInput = {},
+  signal?: AbortSignal
+): Promise<SignalsResponse> {
+  const query = new URLSearchParams();
+
+  if (input.view) {
+    query.set("view", input.view);
+  }
+
+  if (input.window_days) {
+    query.set(
+      "window_days",
+      String(input.window_days)
+    );
+  }
+
+  if (input.duration_bucket) {
+    query.set(
+      "duration_bucket",
+      input.duration_bucket
+    );
+  }
+
+  if (input.sort) {
+    query.set("sort", input.sort);
+  }
+
+  if (input.source_id) {
+    query.set(
+      "source_id",
+      input.source_id
+    );
+  }
+
+  if (input.q?.trim()) {
+    query.set(
+      "q",
+      input.q.trim()
+    );
+  }
+
+  if (input.limit !== undefined) {
+    query.set(
+      "limit",
+      String(input.limit)
+    );
+  }
+
+  if (input.offset !== undefined) {
+    query.set(
+      "offset",
+      String(input.offset)
+    );
+  }
+
+  const queryString = query.toString();
+
+  return requestJson<SignalsResponse>(
+    `/signals${queryString ? `?${queryString}` : ""}`,
+    {
+      method: "GET",
+      signal,
+    }
+  );
+}
+
+export async function queueScannerRun(
+  input: QueueScannerRunInput = {}
+): Promise<ScannerRun> {
+  const response =
+    await requestJson<DataResponse<ScannerRun>>(
+      "/scanner/run",
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      }
+    );
+
+  return response.data;
+}
+
+export async function fetchScannerRun(
+  runId: string,
+  signal?: AbortSignal
+): Promise<ScannerRun> {
+  const response =
+    await requestJson<DataResponse<ScannerRun>>(
+      `/scanner/runs/${encodeURIComponent(runId)}`,
+      {
+        method: "GET",
+        signal,
+      }
+    );
+
+  return response.data;
+}
