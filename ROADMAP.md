@@ -1,9 +1,13 @@
 # DC 2100 APEX OS
-# 14-Day MVP Launch Roadmap
+# 10-Day Accelerated MVP Launch Roadmap
 
 ## Mission
 
-Launch the APEX OS Short Engine MVP within 14 days.
+Launch the APEX OS Short Engine MVP within an accelerated 10-day execution window.
+
+Day 1 and Day 2 foundations were completed ahead of the original schedule.
+
+The remaining execution plan intentionally combines tightly coupled workflow stages without reducing MVP scope.
 
 The system must support the following operating loop:
 
@@ -1138,26 +1142,34 @@ They do not enter MVP scope.
 
 # Launch Sequence
 
-DAY 1–3
+DAY 1–2
 
-Infrastructure + Sources
+Foundation + Database + Workflow State
 
-DAY 4–7
+DAY 3
 
-Intelligence + Creative Pipeline
+Sources + Scanner
 
-DAY 8–10
+DAY 4
 
-Generation + Publishing + Analytics
+Analyzer + Transformer
 
-DAY 11
+DAY 5
 
-Full Test
+Creative Pack + Generation Queue
 
-DAY 12–13
+DAY 6
 
-Pilot + Fix
+Publishing + Analytics + YPP Mission Control
 
-DAY 14
+DAY 7
+
+Full End-to-End Test
+
+DAY 8–9
+
+Pilot + Fix + P0 Preparation
+
+DAY 10
 
 P0 GLOBAL QUALIFIERS GO LIVE
