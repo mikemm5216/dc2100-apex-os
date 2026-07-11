@@ -1,5 +1,3 @@
-BEGIN;
-
 -- Additional operating markets required by the real watchlist.
 INSERT INTO countries (code, name, enabled)
 VALUES
@@ -534,5 +532,3 @@ BEGIN
   END IF;
 END
 $$;
-
-COMMIT;

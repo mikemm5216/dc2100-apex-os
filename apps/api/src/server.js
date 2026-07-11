@@ -2,6 +2,13 @@ const http = require("node:http");
 const { URL } = require("node:url");
 const pool = require("./db");
 
+const {
+  createScannerRun,
+  getScannerRun,
+  getSignal,
+  listSignals
+} = require("../../../lib/scanner/api");
+
 const port = process.env.PORT || 3000;
 
 const VALID_STATUSES = new Set([
@@ -970,6 +977,132 @@ const server = http.createServer(async (req, res) => {
       } catch (error) {
         return handleDatabaseError(res, error);
       }
+    }
+  }
+
+  // =======================================================
+  // SCANNER + SIGNALS
+  // =======================================================
+
+  if (
+    req.method === "POST" &&
+    pathname === "/scanner/run"
+  ) {
+    let body;
+
+    try {
+      body = await readJsonBody(req);
+    } catch (error) {
+      return sendJson(
+        res,
+        400,
+        {
+          error: error.message,
+          message:
+            "Request body must contain valid JSON."
+        }
+      );
+    }
+
+    try {
+      const result =
+        await createScannerRun(
+          pool,
+          body
+        );
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(
+        res,
+        error
+      );
+    }
+  }
+
+  const scannerRunMatch =
+    pathname.match(
+      /^\/scanner\/runs\/([0-9]+)$/
+    );
+
+  if (
+    req.method === "GET" &&
+    scannerRunMatch
+  ) {
+    try {
+      const result =
+        await getScannerRun(
+          pool,
+          scannerRunMatch[1]
+        );
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(
+        res,
+        error
+      );
+    }
+  }
+
+  if (
+    req.method === "GET" &&
+    pathname === "/signals"
+  ) {
+    try {
+      const result =
+        await listSignals(
+          pool,
+          requestUrl.searchParams
+        );
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(
+        res,
+        error
+      );
+    }
+  }
+
+  const signalMatch =
+    pathname.match(
+      /^\/signals\/([0-9]+)$/
+    );
+
+  if (
+    req.method === "GET" &&
+    signalMatch
+  ) {
+    try {
+      const result =
+        await getSignal(
+          pool,
+          signalMatch[1]
+        );
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(
+        res,
+        error
+      );
     }
   }
 
