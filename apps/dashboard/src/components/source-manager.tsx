@@ -332,7 +332,7 @@ export function SourceManager() {
         >
           Bulk Disable
         </button>
-        
+
         <div className="flex items-center gap-2 border-l border-neutral-700 pl-3">
           <select
             value={bulkPriority}

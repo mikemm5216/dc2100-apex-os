@@ -369,4 +369,3 @@ export async function bulkDeleteContents(
   );
   return response.data;
 }
-

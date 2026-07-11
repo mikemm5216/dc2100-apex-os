@@ -203,7 +203,7 @@ export function CandidatesTable() {
     if (selectedIds.size === 0) return [];
     const selectedContents = contents.filter((c) => selectedIds.has(c.content_id));
     if (selectedContents.length === 0) return [];
-    
+
     let intersection: string[] | null = null;
     for (const c of selectedContents) {
       const allowed = allowedTransitions[c.status] || [];
@@ -454,7 +454,7 @@ export function CandidatesTable() {
             Move Status
           </button>
         </div>
-        
+
         <div className="flex items-center gap-2 border-l border-neutral-700 pl-3">
           <select
             value={bulkPriority}
