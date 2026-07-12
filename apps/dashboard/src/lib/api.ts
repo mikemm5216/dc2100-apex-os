@@ -1216,6 +1216,516 @@ export async function fetchCountryNewsRun(
   return response.data;
 }
 
+export type PersonRoleCategory =
+  | "FOUNDER_EXECUTIVE"
+  | "DRIVER_RACER"
+  | "ENGINEER_DESIGNER"
+  | "BUILDER_TUNER"
+  | "CREATOR_MEDIA"
+  | "COLLECTOR_OWNER"
+  | "HISTORICAL_FIGURE"
+  | "OTHER";
+
+export type PersonRelationType =
+  | "FOUNDER"
+  | "EXECUTIVE"
+  | "DRIVER"
+  | "RACING_DRIVER"
+  | "DESIGNER"
+  | "ENGINEER"
+  | "BUILDER"
+  | "TUNER"
+  | "CREATOR"
+  | "OWNER"
+  | "HISTORICAL"
+  | "OTHER";
+
+export type PersonTrafficTier =
+  | "BREAKOUT"
+  | "ACTIVE"
+  | "WATCH"
+  | "LOW_SIGNAL";
+
+export type PersonTransformationTier =
+  | "HIGH"
+  | "MEDIUM"
+  | "LOW";
+
+export type PersonAttentionArchetype =
+  | "LEADERSHIP_POWER"
+  | "PERFORMANCE_RIVALRY"
+  | "TECHNOLOGY_VISION"
+  | "LEGAL_REGULATORY"
+  | "ACCIDENT_SAFETY"
+  | "RECORD_ACHIEVEMENT"
+  | "OWNERSHIP_LUXURY"
+  | "CULTURE_FANDOM"
+  | "CONTROVERSY"
+  | "OTHER";
+
+export type PersonLinkMethod =
+  | "CATALOG"
+  | "DIRECT_MENTION"
+  | "MODEL_ASSOCIATION"
+  | "BRAND_ASSOCIATION"
+  | "MANUAL";
+
+export type PersonMentionMatchMethod =
+  | "TITLE_ALIAS"
+  | "SNIPPET_ALIAS"
+  | "QUERY_CONTEXT";
+
+export type PersonRadarSort =
+  | "traffic_score"
+  | "vehicle_views"
+  | "news_coverage"
+  | "recency"
+  | "publisher_count"
+  | "transformation_potential";
+
+export type PersonRadarWindowHours =
+  | 24
+  | 72
+  | 168
+  | 720;
+
+export type PersonNewsAgeHours = 24 | 72 | 168;
+
+export type PersonVehicleWindowDays =
+  | 3
+  | 7
+  | 14
+  | 30;
+
+export type PersonTrafficRecord = {
+  id: string;
+  person_id: string;
+  person_slug: string;
+  canonical_name: string;
+  role_category: PersonRoleCategory;
+  person_country_code: string | null;
+  person_country_name: string | null;
+
+  linked_brands: string[];
+  linked_series: string[];
+  linked_models: string[];
+  relation_types: PersonRelationType[];
+  link_confidence: string | null;
+
+  traffic_tier: PersonTrafficTier;
+  traffic_score: string;
+
+  vehicle_attention_score: string;
+  news_coverage_score: string;
+
+  vehicle_signal_count: number;
+  qualified_vehicle_signal_count: number;
+  direct_vehicle_mention_count: number;
+  vehicle_views_total: string;
+  vehicle_views_max: string;
+
+  news_mention_count: number;
+  publisher_count: number;
+  query_count: number;
+  feed_rank_score: string | null;
+  age_hours: string | null;
+
+  attention_archetypes: PersonAttentionArchetype[];
+  transformation_tier: PersonTransformationTier;
+  transformation_potential: string;
+
+  representative_headline: string | null;
+  representative_url: string | null;
+  representative_source: string | null;
+  representative_domain: string | null;
+
+  first_seen_at: string;
+  last_seen_at: string;
+
+  provider: string;
+  resolver_version: string;
+};
+
+export type PersonVehicleLink = {
+  id: string;
+  vehicle_id: string | null;
+  vehicle_brand: string | null;
+  vehicle_series: string | null;
+  vehicle_model: string | null;
+  relation_type: PersonRelationType;
+  link_confidence: string | null;
+  link_method: PersonLinkMethod;
+  link_evidence: Record<string, unknown>;
+  locked: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PersonTrafficMention = {
+  id: string;
+  external_key: string;
+  query_key: string;
+  query_text: string;
+  feed_rank: number | null;
+
+  title: string;
+  normalized_title: string;
+  url: string;
+  guid: string | null;
+
+  source_name: string | null;
+  source_url: string | null;
+  publisher_domain: string | null;
+
+  published_at: string | null;
+  snippet: string | null;
+
+  person_match_method: PersonMentionMatchMethod;
+  person_confidence: string | null;
+
+  raw_metadata: {
+    query_keys?: string[];
+    [key: string]: unknown;
+  };
+
+  first_seen_at: string;
+  last_seen_at: string;
+};
+
+export type PersonRadarDetail =
+  PersonTrafficRecord & {
+    person_aliases: string[];
+    person_metadata: Record<string, unknown>;
+    catalog_version: string | null;
+    person_active: boolean;
+    raw_metadata: Record<string, unknown>;
+    vehicle_links: PersonVehicleLink[];
+    mentions: PersonTrafficMention[];
+  };
+
+export type PersonRadarSummary = {
+  visible_people?: number;
+  breakout?: number;
+  active?: number;
+  watch?: number;
+  low_signal?: number;
+
+  high_potential?: number;
+  medium_potential?: number;
+  low_potential?: number;
+
+  total_vehicle_views?: string;
+  total_vehicle_signals?: number;
+  direct_mention_people?: number;
+  active_brands?: number;
+  active_models?: number;
+  news_publishers?: number;
+};
+
+export type PersonRadarFilters = {
+  window_hours: PersonRadarWindowHours;
+  role_category: PersonRoleCategory | "ALL";
+  relation_type: PersonRelationType | "ALL";
+  vehicle_brand: string;
+  vehicle_model: string;
+  country_code: string;
+  traffic_tier: PersonTrafficTier | "ALL";
+  transformation_tier:
+    | PersonTransformationTier
+    | "ALL";
+  attention_archetype:
+    | PersonAttentionArchetype
+    | "ALL";
+  sort: PersonRadarSort;
+  q: string;
+  limit: number;
+  offset: number;
+};
+
+export type PersonRadarResponse = {
+  data: PersonTrafficRecord[];
+  count: number;
+  total_count: number;
+  summary: PersonRadarSummary;
+  filters: PersonRadarFilters;
+};
+
+export type FetchPersonRadarInput = {
+  window_hours?: PersonRadarWindowHours;
+  role_category?: PersonRoleCategory | "ALL";
+  relation_type?: PersonRelationType | "ALL";
+  vehicle_brand?: string;
+  vehicle_model?: string;
+  country_code?: string;
+  traffic_tier?: PersonTrafficTier | "ALL";
+  transformation_tier?:
+    | PersonTransformationTier
+    | "ALL";
+  attention_archetype?:
+    | PersonAttentionArchetype
+    | "ALL";
+  sort?: PersonRadarSort;
+  q?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export type PersonRadarRunStatus =
+  | "QUEUED"
+  | "RUNNING"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELLED";
+
+export type PersonRadarRunPersonSummary = {
+  person_id?: string;
+  person_slug?: string;
+  canonical_name?: string;
+  role_category?: PersonRoleCategory;
+  linked_brands?: string[];
+  linked_series?: string[];
+  linked_models?: string[];
+  relation_types?: PersonRelationType[];
+  vehicle_signal_count?: number;
+  qualified_vehicle_signal_count?: number;
+  direct_vehicle_mention_count?: number;
+  vehicle_views_total?: string;
+  vehicle_views_max?: string;
+};
+
+export type PersonRadarRun = {
+  id: string;
+  status: PersonRadarRunStatus;
+
+  request_payload: {
+    max_people?: number;
+    vehicle_window_days?: PersonVehicleWindowDays;
+    max_queries_per_person?: number;
+    max_items_per_query?: number;
+    max_age_hours?: PersonNewsAgeHours;
+    person_ids?: string[] | null;
+    person_slugs?: string[] | null;
+  };
+
+  summary: {
+    selected_people?: PersonRadarRunPersonSummary[];
+    person_results?: Array<{
+      person_slug?: string;
+      status?: string;
+      query_count?: number;
+      succeeded_query_count?: number;
+      item_count?: number;
+      mention_count?: number;
+      traffic_tier?: PersonTrafficTier;
+      transformation_tier?: PersonTransformationTier;
+      message?: string;
+    }>;
+    errors?: Array<{
+      scope?: string;
+      person_slug?: string;
+      query_key?: string;
+      code?: string | null;
+      message?: string;
+    }>;
+
+    breakout_count?: number;
+    active_count?: number;
+    watch_count?: number;
+    low_signal_count?: number;
+
+    high_transformation_count?: number;
+    medium_transformation_count?: number;
+    low_transformation_count?: number;
+
+    direct_mention_person_count?: number;
+    brand_association_person_count?: number;
+    model_association_person_count?: number;
+
+    provider?: string;
+    resolver_version?: string;
+    catalog_version?: string;
+    vehicle_window_days?: number;
+    max_age_hours?: number;
+    max_queries_per_person?: number;
+    max_items_per_query?: number;
+  };
+
+  person_count: number;
+  completed_person_count: number;
+  failed_person_count: number;
+
+  query_count: number;
+  succeeded_query_count: number;
+  item_count: number;
+
+  mention_inserted_count: number;
+  mention_updated_count: number;
+  signal_inserted_count: number;
+  signal_updated_count: number;
+
+  error_message: string | null;
+
+  locked_by: string | null;
+  locked_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type QueuePersonRadarRunInput = {
+  max_people?: number;
+  vehicle_window_days?: PersonVehicleWindowDays;
+  max_queries_per_person?: number;
+  max_items_per_query?: number;
+  max_age_hours?: PersonNewsAgeHours;
+  person_ids?: string[] | null;
+  person_slugs?: string[] | null;
+};
+
+export async function fetchPersonRadar(
+  input: FetchPersonRadarInput = {},
+  signal?: AbortSignal
+): Promise<PersonRadarResponse> {
+  const query = new URLSearchParams();
+
+  if (input.window_hours) {
+    query.set(
+      "window_hours",
+      String(input.window_hours)
+    );
+  }
+
+  if (input.role_category) {
+    query.set(
+      "role_category",
+      input.role_category
+    );
+  }
+
+  if (input.relation_type) {
+    query.set(
+      "relation_type",
+      input.relation_type
+    );
+  }
+
+  if (input.vehicle_brand?.trim()) {
+    query.set(
+      "vehicle_brand",
+      input.vehicle_brand.trim()
+    );
+  }
+
+  if (input.vehicle_model?.trim()) {
+    query.set(
+      "vehicle_model",
+      input.vehicle_model.trim()
+    );
+  }
+
+  if (input.country_code?.trim()) {
+    query.set(
+      "country_code",
+      input.country_code.trim()
+    );
+  }
+
+  if (input.traffic_tier) {
+    query.set("traffic_tier", input.traffic_tier);
+  }
+
+  if (input.transformation_tier) {
+    query.set(
+      "transformation_tier",
+      input.transformation_tier
+    );
+  }
+
+  if (
+    input.attention_archetype &&
+    input.attention_archetype !== "ALL"
+  ) {
+    query.set(
+      "attention_archetype",
+      input.attention_archetype
+    );
+  }
+
+  if (input.sort) {
+    query.set("sort", input.sort);
+  }
+
+  if (input.q?.trim()) {
+    query.set("q", input.q.trim());
+  }
+
+  if (input.limit !== undefined) {
+    query.set("limit", String(input.limit));
+  }
+
+  if (input.offset !== undefined) {
+    query.set("offset", String(input.offset));
+  }
+
+  const queryString = query.toString();
+
+  return requestJson<PersonRadarResponse>(
+    `/person-radar${queryString ? `?${queryString}` : ""}`,
+    {
+      method: "GET",
+      signal,
+    }
+  );
+}
+
+export async function fetchPersonRadarDetail(
+  signalId: string,
+  signal?: AbortSignal
+): Promise<PersonRadarDetail> {
+  const response =
+    await requestJson<DataResponse<PersonRadarDetail>>(
+      `/person-radar/${encodeURIComponent(signalId)}`,
+      {
+        method: "GET",
+        signal,
+      }
+    );
+
+  return response.data;
+}
+
+export async function queuePersonRadarRun(
+  input: QueuePersonRadarRunInput = {}
+): Promise<PersonRadarRun> {
+  const response =
+    await requestJson<DataResponse<PersonRadarRun>>(
+      "/person-radar/run",
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      }
+    );
+
+  return response.data;
+}
+
+export async function fetchPersonRadarRun(
+  runId: string,
+  signal?: AbortSignal
+): Promise<PersonRadarRun> {
+  const response =
+    await requestJson<DataResponse<PersonRadarRun>>(
+      `/person-radar/runs/${encodeURIComponent(runId)}`,
+      {
+        method: "GET",
+        signal,
+      }
+    );
+
+  return response.data;
+}
+
 export async function queueScannerRun(
   input: QueueScannerRunInput = {}
 ): Promise<ScannerRun> {

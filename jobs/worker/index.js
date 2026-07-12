@@ -13,6 +13,10 @@ const {
   processNextCountryNewsRun
 } = require("../../lib/news/engine");
 
+const {
+  processNextPersonRadarRun
+} = require("../../lib/person/engine");
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL
 });
@@ -84,13 +88,10 @@ function scheduleNextPoll(delayMs) {
   }
 
   pollTimer = setTimeout(() => {
-    activePoll = pollScannerQueue();
+    activePoll = pollQueues();
   }, delayMs);
 }
 
-// Country News queue: only polled when the Vehicle
-// Scanner queue is idle, so vehicle scanning always keeps
-// priority inside the single worker loop.
 async function pollCountryNewsQueue() {
   try {
     const result =
@@ -203,11 +204,121 @@ async function pollCountryNewsQueue() {
   }
 }
 
-async function pollScannerQueue() {
-  if (shuttingDown) {
-    return;
-  }
+// Person Radar queue: manual Run Now only. The worker
+// never queues person runs by itself — no cron, no
+// scheduler, no AutoFlow.
+async function pollPersonRadarQueue() {
+  try {
+    const result =
+      await processNextPersonRadarRun(
+        pool,
+        {
+          workerId,
+          onRunStarted(run) {
+            log(
+              "person_radar_run_started",
+              {
+                run_id: String(run.id)
+              }
+            );
+          },
+          onPersonCompleted(person, state) {
+            log(
+              "person_radar_person_completed",
+              {
+                person_slug: person.slug,
+                completed_person_count:
+                  state.completedPersonCount,
+                failed_person_count:
+                  state.failedPersonCount
+              }
+            );
+          }
+        }
+      );
 
+    if (!result) {
+      return false;
+    }
+
+    for (const item of result.errors || []) {
+      if (item.scope === "query") {
+        log(
+          "person_radar_query_failed",
+          {
+            run_id: result.runId,
+            person_slug: item.person_slug,
+            query_key: item.query_key,
+            code: item.code,
+            message: item.message
+          }
+        );
+      }
+    }
+
+    const completionEvent =
+      result.status === "COMPLETED"
+        ? "person_radar_run_completed"
+        : "person_radar_run_failed";
+
+    log(
+      completionEvent,
+      {
+        run_id: result.runId,
+        status: result.status,
+        person_count: result.personCount,
+        completed_person_count:
+          result.completedPersonCount,
+        failed_person_count:
+          result.failedPersonCount,
+        query_count: result.queryCount,
+        succeeded_query_count:
+          result.succeededQueryCount,
+        item_count: result.itemCount,
+        mention_inserted_count:
+          result.mentionInsertedCount,
+        mention_updated_count:
+          result.mentionUpdatedCount,
+        signal_inserted_count:
+          result.signalInsertedCount,
+        signal_updated_count:
+          result.signalUpdatedCount,
+        breakout_count: result.breakoutCount,
+        active_count: result.activeCount,
+        watch_count: result.watchCount,
+        low_signal_count:
+          result.lowSignalCount,
+        high_transformation_count:
+          result.highTransformationCount,
+        medium_transformation_count:
+          result.mediumTransformationCount,
+        low_transformation_count:
+          result.lowTransformationCount
+      }
+    );
+
+    return true;
+  } catch (error) {
+    if (error?.code === "42P01") {
+      log(
+        "person_radar_schema_waiting",
+        {
+          message:
+            "Person radar migration has not been applied yet."
+        }
+      );
+    } else {
+      logError(
+        "person_radar_poll_failed",
+        error
+      );
+    }
+
+    return false;
+  }
+}
+
+async function pollVehicleScannerQueue() {
   let processedRun = false;
 
   try {
@@ -290,15 +401,46 @@ async function pollScannerQueue() {
     }
   }
 
-  // Vehicle Scanner keeps priority: the Country News
-  // queue only runs when no vehicle run was claimed.
-  if (!processedRun && !shuttingDown) {
-    const processedNewsRun =
-      await pollCountryNewsQueue();
+  return processedRun;
+}
 
-    processedRun =
-      processedRun || processedNewsRun;
+// Simple fair rotation across the three queues inside the
+// single polling loop. Each poll starts at a rotating
+// cursor and stops after the first queue that processed a
+// run, so no queue can permanently starve another.
+const QUEUE_POLLERS = [
+  pollVehicleScannerQueue,
+  pollCountryNewsQueue,
+  pollPersonRadarQueue
+];
+
+let queueCursor = 0;
+
+async function pollQueues() {
+  if (shuttingDown) {
+    return;
   }
+
+  let processedRun = false;
+
+  for (
+    let offset = 0;
+    offset < QUEUE_POLLERS.length &&
+      !processedRun &&
+      !shuttingDown;
+    offset += 1
+  ) {
+    const poller =
+      QUEUE_POLLERS[
+        (queueCursor + offset) %
+          QUEUE_POLLERS.length
+      ];
+
+    processedRun = Boolean(await poller());
+  }
+
+  queueCursor =
+    (queueCursor + 1) % QUEUE_POLLERS.length;
 
   scheduleNextPoll(
     processedRun

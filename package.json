@@ -12,7 +12,11 @@
     "test:entity-resolver": "node scripts/test-vehicle-entity-resolver.js",
     "test:country-news-core": "node scripts/test-country-news-core.js",
     "test:country-news-api": "node scripts/test-country-news-api.js",
-    "test:country-news-worker": "node scripts/test-country-news-worker.js"
+    "test:country-news-worker": "node scripts/test-country-news-worker.js",
+    "test:person-resolver": "node scripts/test-person-resolver.js",
+    "test:person-core": "node scripts/test-person-core.js",
+    "test:person-api": "node scripts/test-person-api.js",
+    "test:person-worker": "node scripts/test-person-worker.js"
   },
   "engines": {
     "node": ">=20"

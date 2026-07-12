@@ -4,6 +4,7 @@ const navigation = [
   { label: "Dashboard", href: "/dashboard" },
   { label: "Signals", href: "/signals" },
   { label: "Country News", href: "/country-news" },
+  { label: "People Radar", href: "/person-radar" },
   { label: "Candidates", href: "/candidates" },
   { label: "Creative Packs", href: "/creative-packs" },
   { label: "Generation Queue", href: "/generation-queue" },

@@ -16,6 +16,13 @@ const {
   listCountryNews
 } = require("../../../lib/news/api");
 
+const {
+  createPersonRadarRun,
+  getPersonRadarDetail,
+  getPersonRadarRun,
+  listPersonRadar
+} = require("../../../lib/person/api");
+
 const port = process.env.PORT || 3000;
 
 const VALID_STATUSES = new Set([
@@ -1203,6 +1210,108 @@ const server = http.createServer(async (req, res) => {
       const result = await getCountryNewsDetail(
         pool,
         countryNewsMatch[1]
+      );
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  // =======================================================
+  // PERSON RADAR
+  // =======================================================
+
+  if (
+    req.method === "POST" &&
+    pathname === "/person-radar/run"
+  ) {
+    let body;
+
+    try {
+      body = await readJsonBody(req);
+    } catch (error) {
+      return sendJson(res, 400, {
+        error: error.message,
+        message:
+          "Request body must contain valid JSON."
+      });
+    }
+
+    try {
+      const result =
+        await createPersonRadarRun(pool, body);
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  const personRadarRunMatch = pathname.match(
+    /^\/person-radar\/runs\/([0-9]+)$/
+  );
+
+  if (
+    req.method === "GET" &&
+    personRadarRunMatch
+  ) {
+    try {
+      const result = await getPersonRadarRun(
+        pool,
+        personRadarRunMatch[1]
+      );
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  if (
+    req.method === "GET" &&
+    pathname === "/person-radar"
+  ) {
+    try {
+      const result = await listPersonRadar(
+        pool,
+        requestUrl.searchParams
+      );
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  const personRadarMatch = pathname.match(
+    /^\/person-radar\/([0-9]+)$/
+  );
+
+  if (
+    req.method === "GET" &&
+    personRadarMatch
+  ) {
+    try {
+      const result = await getPersonRadarDetail(
+        pool,
+        personRadarMatch[1]
       );
 
       return sendJson(

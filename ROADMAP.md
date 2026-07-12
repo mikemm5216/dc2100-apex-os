@@ -537,7 +537,7 @@ Day 2 is complete only when:
 # DAY 3
 ## Sources + Viral Scanner
 
-**Status:** IN PROGRESS — Task 3.1 through Task 3.3C complete; Task 3.3D active
+**Status:** IN PROGRESS — Task 3.1 through Task 3.3D complete; Task 3.3E active
 
 ### Accelerated Day 3 Task Plan
 
@@ -548,9 +548,10 @@ Day 2 is complete only when:
 - Task 3.3A — Watchlist Fetch Pipeline ✅ COMPLETE
 - Task 3.3B — Vehicle Shorts Traffic Radar ✅ COMPLETE
 - Task 3.3C — Vehicle Entity + Country Resolver ✅ COMPLETE
-- Task 3.3D — Country News Traffic Radar 🔄 ACTIVE
-- Task 3.3E — Vehicle-Linked Person Traffic Radar ⏳ NEXT
-- Task 3.3F — Vehicle-Centered Signal Fusion ⏳
+- Task 3.3D — Country News Traffic Radar ✅ COMPLETE
+- Task 3.3E — Vehicle-Linked Person Traffic Radar 🔄 ACTIVE
+- Task 3.3F — Vehicle-Centered Signal Fusion ⏳ NEXT
+- Task 3.3G — AutoFlow Orchestrator ⏳
 - Task 3.4 — Traffic Dashboard 🔄 PARTIAL
 
 Task 3.1.1 is a scalability requirement and must be completed before loading the real watchlist.
@@ -583,6 +584,22 @@ Acceptance criteria:
 - Country News Dashboard is operational
 - Vehicle ranking remains unchanged
 - No direct Vehicle-News fusion is created yet
+
+### Task 3.3E — Vehicle-Linked Person Traffic Radar
+
+Acceptance criteria:
+
+- Active vehicle anchors select public people
+- Direct person mentions are detected safely
+- Brand/model associations are deterministic
+- False-positive names are rejected
+- Actual vehicle views remain separate
+- News coverage is clearly proxy-based
+- Composite score is transparent
+- Person traffic filters are available
+- Person dashboard is operational
+- No automatic scheduling exists yet
+- No final Vehicle-News-Person fusion exists yet
 
 ### Source Watchlist
 
