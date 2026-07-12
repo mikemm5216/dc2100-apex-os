@@ -407,6 +407,84 @@ export type SignalShortRejectionReason =
   | "ZERO_DURATION"
   | "OVER_180_SECONDS";
 
+export type SignalEntityResolutionStatus =
+  | "RESOLVED"
+  | "BRAND_ONLY"
+  | "AMBIGUOUS"
+  | "UNRESOLVED"
+  | "NOT_APPLICABLE";
+
+export type SignalEntityMatchMethod =
+  | "MODEL_ALIAS"
+  | "SERIES_ALIAS"
+  | "BRAND_ALIAS"
+  | "UNIQUE_MODEL_ALIAS"
+  | "SOURCE_PRIOR"
+  | "MANUAL"
+  | "NONE";
+
+export type SignalVehicleType =
+  | "HYPERCAR"
+  | "SUPERCAR"
+  | "SPORTS_CAR"
+  | "MUSCLE_CAR"
+  | "RALLY_CAR"
+  | "DRAG_CAR"
+  | "SEDAN"
+  | "COUPE"
+  | "HATCHBACK"
+  | "WAGON"
+  | "SUV"
+  | "TRUCK"
+  | "OFF_ROAD"
+  | "EV"
+  | "CLASSIC"
+  | "OTHER"
+  | "UNKNOWN";
+
+export type SignalVehicleAction =
+  | "RACING"
+  | "DRIFTING"
+  | "DRAG_RACING"
+  | "ACCELERATION"
+  | "LAUNCH"
+  | "BURNOUT"
+  | "CRASH"
+  | "JUMP"
+  | "OFF_ROAD"
+  | "RESTORATION"
+  | "BUILD"
+  | "REVEAL"
+  | "COMPARISON"
+  | "TESTING"
+  | "REVIEW"
+  | "CHASE"
+  | "OTHER"
+  | "UNKNOWN";
+
+export type SignalEntityEvidence = {
+  matched_aliases?: Array<{
+    alias?: string;
+    level?: string;
+    field?: string;
+    brand?: string;
+  }>;
+  candidates?: Array<{
+    level?: string;
+    brand?: string | null;
+    series?: string | null;
+    model?: string | null;
+    score?: number;
+  }>;
+  action_phrase?: string | null;
+  conflict_terms_raw?: string[];
+  title_excerpt?: string;
+  country_lookup_failed?: boolean;
+  ambiguous_between?: string[];
+  reason?: string;
+  [key: string]: unknown;
+};
+
 export type SignalRecord = {
   id: string;
   source_id: string | null;
@@ -437,6 +515,27 @@ export type SignalRecord = {
   qualified: boolean;
   rank_score: string | null;
 
+  vehicle_brand: string | null;
+  vehicle_series: string | null;
+  vehicle_model: string | null;
+  vehicle_type: SignalVehicleType | null;
+  vehicle_action: SignalVehicleAction | null;
+  conflict_keywords: string[];
+
+  entity_resolution_status: SignalEntityResolutionStatus;
+  entity_confidence: string | null;
+  entity_match_method: SignalEntityMatchMethod | null;
+  entity_resolver_version: string | null;
+  entity_locked: boolean;
+
+  resolved_vehicle_id: string | null;
+  resolved_vehicle_code: string | null;
+  resolved_vehicle_name: string | null;
+
+  resolved_country_id: string | null;
+  resolved_country_code: string | null;
+  resolved_country_name: string | null;
+
   raw_metrics: {
     likes?: number;
     comments?: number;
@@ -465,6 +564,12 @@ export type SignalFilters = {
   shorts_only: boolean;
   viral_tier: SignalViralTier | "ALL";
   short_format: SignalShortFormat | "ALL";
+  entity_status: SignalEntityResolutionStatus | "ALL";
+  vehicle_type: SignalVehicleType | "ALL";
+  vehicle_action: SignalVehicleAction | "ALL";
+  has_vehicle: "ALL" | "TRUE" | "FALSE";
+  vehicle_brand: string;
+  country_code: string;
   sort: SignalSort;
   source_id: string | null;
   q: string;
@@ -486,6 +591,12 @@ export type FetchSignalsInput = {
   shorts_only?: boolean;
   viral_tier?: SignalViralTier | "ALL";
   short_format?: SignalShortFormat | "ALL";
+  entity_status?: SignalEntityResolutionStatus | "ALL";
+  vehicle_type?: SignalVehicleType | "ALL";
+  vehicle_action?: SignalVehicleAction | "ALL";
+  has_vehicle?: "ALL" | "TRUE" | "FALSE";
+  vehicle_brand?: string;
+  country_code?: string;
   sort?: SignalSort;
   source_id?: string | null;
   q?: string;
@@ -528,6 +639,14 @@ export type ScannerRun = {
     watch_count?: number;
     unqualified_count?: number;
     qualified_count?: number;
+
+    entity_resolved_count?: number;
+    entity_brand_only_count?: number;
+    entity_ambiguous_count?: number;
+    entity_unresolved_count?: number;
+    entity_not_applicable_count?: number;
+    country_resolved_count?: number;
+    vehicle_record_linked_count?: number;
   };
 
   source_count: number;
@@ -600,6 +719,51 @@ export async function fetchSignals(
     query.set(
       "short_format",
       input.short_format
+    );
+  }
+
+  if (input.entity_status) {
+    query.set(
+      "entity_status",
+      input.entity_status
+    );
+  }
+
+  if (input.vehicle_type) {
+    query.set(
+      "vehicle_type",
+      input.vehicle_type
+    );
+  }
+
+  if (input.vehicle_action) {
+    query.set(
+      "vehicle_action",
+      input.vehicle_action
+    );
+  }
+
+  if (
+    input.has_vehicle &&
+    input.has_vehicle !== "ALL"
+  ) {
+    query.set(
+      "has_vehicle",
+      input.has_vehicle
+    );
+  }
+
+  if (input.vehicle_brand?.trim()) {
+    query.set(
+      "vehicle_brand",
+      input.vehicle_brand.trim()
+    );
+  }
+
+  if (input.country_code?.trim()) {
+    query.set(
+      "country_code",
+      input.country_code.trim()
     );
   }
 

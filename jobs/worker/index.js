@@ -135,6 +135,20 @@ async function pollScannerQueue() {
             result.unqualifiedCount,
           qualified_count:
             result.qualifiedCount,
+          entity_resolved_count:
+            result.entityResolvedCount,
+          entity_brand_only_count:
+            result.entityBrandOnlyCount,
+          entity_ambiguous_count:
+            result.entityAmbiguousCount,
+          entity_unresolved_count:
+            result.entityUnresolvedCount,
+          entity_not_applicable_count:
+            result.entityNotApplicableCount,
+          country_resolved_count:
+            result.countryResolvedCount,
+          vehicle_record_linked_count:
+            result.vehicleRecordLinkedCount,
           quota_units_estimated:
             result.quotaUnits
         }

@@ -90,6 +90,37 @@ assert.equal(
   false
 );
 
+// Task 3.3C entity filter defaults.
+assert.equal(
+  defaults.value.entityStatus,
+  "ALL"
+);
+
+assert.equal(
+  defaults.value.vehicleType,
+  "ALL"
+);
+
+assert.equal(
+  defaults.value.vehicleAction,
+  "ALL"
+);
+
+assert.equal(
+  defaults.value.hasVehicle,
+  "ALL"
+);
+
+assert.equal(
+  defaults.value.vehicleBrand,
+  ""
+);
+
+assert.equal(
+  defaults.value.countryCode,
+  ""
+);
+
 // Default sort is Actual Views First, never rank_score.
 assert.match(
   SIGNAL_SORTS.views.trim(),
@@ -211,6 +242,124 @@ const legacyBucket =
 
 assert.equal(
   legacyBucket.error.statusCode,
+  400
+);
+
+// ---------------------------------------------------------
+// Task 3.3C entity filter parsing + validation
+// ---------------------------------------------------------
+
+const entityFilters =
+  parseSignalQuery(
+    new URLSearchParams({
+      entity_status: "resolved",
+      vehicle_type: "sports_car",
+      vehicle_action: "drag_racing",
+      has_vehicle: "true",
+      vehicle_brand: "Porsche",
+      country_code: "de"
+    })
+  );
+
+assert.equal(
+  entityFilters.value.entityStatus,
+  "RESOLVED"
+);
+
+assert.equal(
+  entityFilters.value.vehicleType,
+  "SPORTS_CAR"
+);
+
+assert.equal(
+  entityFilters.value.vehicleAction,
+  "DRAG_RACING"
+);
+
+assert.equal(
+  entityFilters.value.hasVehicle,
+  "TRUE"
+);
+
+assert.equal(
+  entityFilters.value.vehicleBrand,
+  "Porsche"
+);
+
+assert.equal(
+  entityFilters.value.countryCode,
+  "DE"
+);
+
+const invalidEntityStatus =
+  parseSignalQuery(
+    new URLSearchParams({
+      entity_status: "MAYBE"
+    })
+  );
+
+assert.equal(
+  invalidEntityStatus.error.statusCode,
+  400
+);
+
+const invalidVehicleType =
+  parseSignalQuery(
+    new URLSearchParams({
+      vehicle_type: "SPACESHIP"
+    })
+  );
+
+assert.equal(
+  invalidVehicleType.error.statusCode,
+  400
+);
+
+const invalidVehicleAction =
+  parseSignalQuery(
+    new URLSearchParams({
+      vehicle_action: "TELEPORTING"
+    })
+  );
+
+assert.equal(
+  invalidVehicleAction.error.statusCode,
+  400
+);
+
+const invalidHasVehicle =
+  parseSignalQuery(
+    new URLSearchParams({
+      has_vehicle: "maybe"
+    })
+  );
+
+assert.equal(
+  invalidHasVehicle.error.statusCode,
+  400
+);
+
+const invalidCountryCode =
+  parseSignalQuery(
+    new URLSearchParams({
+      country_code: "DEU"
+    })
+  );
+
+assert.equal(
+  invalidCountryCode.error.statusCode,
+  400
+);
+
+const sqlishCountryCode =
+  parseSignalQuery(
+    new URLSearchParams({
+      country_code: "';"
+    })
+  );
+
+assert.equal(
+  sqlishCountryCode.error.statusCode,
   400
 );
 
@@ -362,8 +511,147 @@ async function run() {
     30
   );
 
+  // -------------------------------------------------------
+  // Task 3.3C: entity filters are parameterized and the
+  // default query is unchanged.
+  // -------------------------------------------------------
+
+  assert.equal(
+    defaultResponse.payload.filters
+      .entity_status,
+    "ALL"
+  );
+
+  assert.equal(
+    defaultResponse.payload.filters
+      .has_vehicle,
+    "ALL"
+  );
+
+  assert.ok(
+    !defaultSql.includes(
+      "entity_resolution_status ="
+    ),
+    "Default query must not filter by entity status."
+  );
+
+  const entityPool =
+    createCapturingPool();
+
+  await listSignals(
+    entityPool,
+    new URLSearchParams({
+      entity_status: "RESOLVED",
+      vehicle_type: "SPORTS_CAR",
+      vehicle_action: "DRAG_RACING",
+      has_vehicle: "true",
+      vehicle_brand: "Porsche' OR 1=1 --",
+      country_code: "DE"
+    })
+  );
+
+  const entityQuery =
+    entityPool.queries[0];
+
+  // vehicle_brand and country_code only appear as bind
+  // parameters, never inlined into the SQL text.
+  assert.ok(
+    !entityQuery.sql.includes("Porsche"),
+    "vehicle_brand must be parameterized."
+  );
+
+  assert.ok(
+    !entityQuery.sql.includes("1=1"),
+    "vehicle_brand must never be interpolated into SQL."
+  );
+
+  assert.ok(
+    entityQuery.values.includes(
+      "Porsche' OR 1=1 --"
+    ),
+    "vehicle_brand must be passed as a bind value."
+  );
+
+  assert.ok(
+    entityQuery.values.includes("DE"),
+    "country_code must be passed as a bind value."
+  );
+
+  assert.ok(
+    entityQuery.values.includes(
+      "RESOLVED"
+    ) &&
+      entityQuery.values.includes(
+        "SPORTS_CAR"
+      ) &&
+      entityQuery.values.includes(
+        "DRAG_RACING"
+      ),
+    "Entity allowlist filters must be bind values."
+  );
+
+  assert.ok(
+    entityQuery.sql.includes(
+      "sig.vehicle_brand IS NOT NULL"
+    ),
+    "has_vehicle=true must require a resolved brand."
+  );
+
+  assert.ok(
+    entityQuery.sql.includes(
+      "LOWER(sig.vehicle_brand)"
+    ),
+    "vehicle_brand must use exact normalized matching."
+  );
+
+  // Entity filters must not change the Actual Views First
+  // ordering.
+  const entityOrderBy =
+    entityQuery.sql.split("ORDER BY")[1];
+
+  assert.ok(
+    entityOrderBy
+      .trim()
+      .startsWith("sig.views DESC"),
+    "Entity filters must not change views-first sorting."
+  );
+
+  // List response includes entity + resolved reference
+  // fields.
+  for (const column of [
+    "sig.vehicle_brand",
+    "sig.vehicle_series",
+    "sig.vehicle_model",
+    "sig.vehicle_type",
+    "sig.vehicle_action",
+    "sig.conflict_keywords",
+    "sig.entity_resolution_status",
+    "sig.entity_confidence",
+    "sig.entity_match_method",
+    "sig.entity_resolver_version",
+    "sig.entity_locked",
+    "resolved_vehicle_code",
+    "resolved_vehicle_name",
+    "resolved_country_code",
+    "resolved_country_name"
+  ]) {
+    assert.ok(
+      entityQuery.sql.includes(column),
+      `Signals list must select ${column}.`
+    );
+  }
+
+  // The list payload stays compact: full entity evidence is
+  // reserved for the detail endpoint.
+  assert.ok(
+    !entityQuery.sql.includes(
+      "sig.entity_evidence"
+    ),
+    "List endpoint must not return full entity evidence."
+  );
+
   console.log(
-    "TASK 3.3B SCANNER API TESTS PASSED"
+    "TASK 3.3B + 3.3C SCANNER API TESTS PASSED"
   );
 }
 

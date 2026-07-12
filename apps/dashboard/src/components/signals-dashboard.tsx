@@ -18,16 +18,84 @@ import {
 import type {
   ScannerRun,
   SignalDurationBucket,
+  SignalEntityResolutionStatus,
   SignalRecord,
   SignalShortFormat,
   SignalsResponse,
   SignalSort,
+  SignalVehicleAction,
+  SignalVehicleType,
   SignalView,
   SignalViralTier,
   SourceRecord,
 } from "@/lib/api";
 
 const activeRunStatuses = new Set(["QUEUED", "RUNNING"]);
+
+const entityStatusOptions: SignalEntityResolutionStatus[] = [
+  "RESOLVED",
+  "BRAND_ONLY",
+  "AMBIGUOUS",
+  "UNRESOLVED",
+  "NOT_APPLICABLE",
+];
+
+const vehicleTypeOptions: SignalVehicleType[] = [
+  "HYPERCAR",
+  "SUPERCAR",
+  "SPORTS_CAR",
+  "MUSCLE_CAR",
+  "RALLY_CAR",
+  "DRAG_CAR",
+  "SEDAN",
+  "COUPE",
+  "HATCHBACK",
+  "WAGON",
+  "SUV",
+  "TRUCK",
+  "OFF_ROAD",
+  "EV",
+  "CLASSIC",
+  "OTHER",
+  "UNKNOWN",
+];
+
+const vehicleActionOptions: SignalVehicleAction[] = [
+  "RACING",
+  "DRIFTING",
+  "DRAG_RACING",
+  "ACCELERATION",
+  "LAUNCH",
+  "BURNOUT",
+  "CRASH",
+  "JUMP",
+  "OFF_ROAD",
+  "RESTORATION",
+  "BUILD",
+  "REVEAL",
+  "COMPARISON",
+  "TESTING",
+  "REVIEW",
+  "CHASE",
+  "OTHER",
+  "UNKNOWN",
+];
+
+const entityStatusBadgeStyles: Record<
+  SignalEntityResolutionStatus,
+  string
+> = {
+  RESOLVED:
+    "border-emerald-900 bg-emerald-950/60 text-emerald-300",
+  BRAND_ONLY:
+    "border-sky-900 bg-sky-950/60 text-sky-300",
+  AMBIGUOUS:
+    "border-amber-900 bg-amber-950/60 text-amber-300",
+  UNRESOLVED:
+    "border-neutral-700 bg-neutral-900 text-neutral-400",
+  NOT_APPLICABLE:
+    "border-neutral-800 bg-neutral-900 text-neutral-500",
+};
 
 const viralTierBadgeStyles: Record<SignalViralTier, string> = {
   PROVEN:
@@ -111,6 +179,27 @@ export function SignalsDashboard() {
   const [shortFormat, setShortFormat] =
     useState<SignalShortFormat | "ALL">("ALL");
 
+  const [entityStatus, setEntityStatus] =
+    useState<SignalEntityResolutionStatus | "ALL">("ALL");
+
+  const [vehicleType, setVehicleType] =
+    useState<SignalVehicleType | "ALL">("ALL");
+
+  const [vehicleAction, setVehicleAction] =
+    useState<SignalVehicleAction | "ALL">("ALL");
+
+  const [brandInput, setBrandInput] =
+    useState("");
+
+  const [brandFilter, setBrandFilter] =
+    useState("");
+
+  const [countryInput, setCountryInput] =
+    useState("");
+
+  const [countryFilter, setCountryFilter] =
+    useState("");
+
   const [sort, setSort] =
     useState<SignalSort>("views");
 
@@ -160,6 +249,11 @@ export function SignalsDashboard() {
             shorts_only: shortsOnly,
             viral_tier: viralTier,
             short_format: shortFormat,
+            entity_status: entityStatus,
+            vehicle_type: vehicleType,
+            vehicle_action: vehicleAction,
+            vehicle_brand: brandFilter,
+            country_code: countryFilter,
             sort,
             source_id: sourceId || null,
             q: query,
@@ -194,13 +288,18 @@ export function SignalsDashboard() {
 
     return () => controller.abort();
   }, [
+    brandFilter,
+    countryFilter,
     durationBucket,
+    entityStatus,
     query,
     reloadKey,
     shortFormat,
     shortsOnly,
     sort,
     sourceId,
+    vehicleAction,
+    vehicleType,
     view,
     viralTier,
     windowDays,
@@ -293,11 +392,33 @@ export function SignalsDashboard() {
     (signal) => signal.qualified
   ).length;
 
+  const entityCounts = signals.reduce(
+    (counts, signal) => {
+      counts[signal.entity_resolution_status] =
+        (counts[signal.entity_resolution_status] ?? 0) + 1;
+      return counts;
+    },
+    {} as Partial<
+      Record<SignalEntityResolutionStatus, number>
+    >
+  );
+
   function handleSearch(
     event: FormEvent<HTMLFormElement>
   ) {
     event.preventDefault();
     setQuery(queryInput.trim());
+    setBrandFilter(brandInput.trim());
+
+    const nextCountry = countryInput
+      .trim()
+      .toUpperCase();
+
+    setCountryFilter(
+      /^[A-Z]{2}$/.test(nextCountry)
+        ? nextCountry
+        : ""
+    );
   }
 
   async function handleScannerRun() {
@@ -499,6 +620,27 @@ export function SignalsDashboard() {
             </div>
           ))}
         </div>
+
+        <div className="grid gap-px border-t border-neutral-800 bg-neutral-800 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            ["Resolved", entityCounts.RESOLVED ?? 0],
+            ["Brand Only", entityCounts.BRAND_ONLY ?? 0],
+            ["Ambiguous", entityCounts.AMBIGUOUS ?? 0],
+            ["Unresolved", entityCounts.UNRESOLVED ?? 0],
+          ].map(([label, value]) => (
+            <div
+              key={label}
+              className="bg-neutral-950 px-5 py-3"
+            >
+              <p className="text-[11px] uppercase tracking-wider text-neutral-600">
+                Entity · {label}
+              </p>
+              <p className="mt-1 text-lg font-semibold text-neutral-200">
+                {value}
+              </p>
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="rounded-xl border border-neutral-800 bg-neutral-950">
@@ -689,6 +831,94 @@ export function SignalsDashboard() {
                 </option>
               ))}
           </select>
+
+          <select
+            value={entityStatus}
+            onChange={(event) =>
+              setEntityStatus(
+                event.target.value as
+                  | SignalEntityResolutionStatus
+                  | "ALL"
+              )
+            }
+            className="rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white"
+          >
+            <option value="ALL">All entity statuses</option>
+            {entityStatusOptions.map((status) => (
+              <option key={status} value={status}>
+                {status.replaceAll("_", " ")}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={vehicleType}
+            onChange={(event) =>
+              setVehicleType(
+                event.target.value as
+                  | SignalVehicleType
+                  | "ALL"
+              )
+            }
+            className="rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white"
+          >
+            <option value="ALL">All vehicle types</option>
+            {vehicleTypeOptions.map((type) => (
+              <option key={type} value={type}>
+                {type.replaceAll("_", " ")}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={vehicleAction}
+            onChange={(event) =>
+              setVehicleAction(
+                event.target.value as
+                  | SignalVehicleAction
+                  | "ALL"
+              )
+            }
+            className="rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white"
+          >
+            <option value="ALL">All actions</option>
+            {vehicleActionOptions.map((action) => (
+              <option key={action} value={action}>
+                {action.replaceAll("_", " ")}
+              </option>
+            ))}
+          </select>
+
+          <form
+            onSubmit={handleSearch}
+            className="flex gap-2"
+          >
+            <input
+              value={brandInput}
+              onChange={(event) =>
+                setBrandInput(event.target.value)
+              }
+              placeholder="Brand (e.g. Porsche)"
+              className="min-w-0 flex-1 rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white"
+            />
+
+            <input
+              value={countryInput}
+              onChange={(event) =>
+                setCountryInput(event.target.value)
+              }
+              placeholder="CC"
+              maxLength={2}
+              className="w-14 rounded-lg border border-neutral-700 bg-neutral-900 px-2 py-2 text-center text-sm uppercase text-white"
+            />
+
+            <button
+              type="submit"
+              className="rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-300"
+            >
+              Apply
+            </button>
+          </form>
         </div>
 
         {error && (
@@ -866,6 +1096,116 @@ export function SignalsDashboard() {
                       </div>
                     ))}
                   </div>
+
+                  {signal.entity_resolution_status !==
+                    "NOT_APPLICABLE" && (
+                    <div className="mt-3 rounded-lg border border-neutral-800 bg-neutral-900/40 px-3 py-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[10px] uppercase tracking-wider text-neutral-600">
+                          Vehicle Anchor
+                        </span>
+
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                            entityStatusBadgeStyles[
+                              signal.entity_resolution_status
+                            ]
+                          }`}
+                        >
+                          {signal.entity_resolution_status.replaceAll(
+                            "_",
+                            " "
+                          )}
+                        </span>
+
+                        {signal.entity_confidence !==
+                          null && (
+                          <span className="text-[10px] text-neutral-500">
+                            Confidence{" "}
+                            {Math.round(
+                              numeric(
+                                signal.entity_confidence
+                              ) * 100
+                            )}
+                            %
+                          </span>
+                        )}
+
+                        {signal.entity_locked && (
+                          <span className="rounded-full border border-purple-900 bg-purple-950/60 px-2 py-0.5 text-[10px] font-medium text-purple-300">
+                            LOCKED
+                          </span>
+                        )}
+                      </div>
+
+                      {(signal.vehicle_brand ||
+                        signal.vehicle_model) && (
+                        <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                          <span className="text-sm font-semibold text-neutral-100">
+                            {signal.vehicle_brand}
+                          </span>
+
+                          {signal.vehicle_series &&
+                            signal.vehicle_series !==
+                              signal.vehicle_model && (
+                              <span className="text-xs text-neutral-400">
+                                {signal.vehicle_series}
+                              </span>
+                            )}
+
+                          {signal.vehicle_model && (
+                            <span className="text-sm text-orange-300">
+                              {signal.vehicle_model}
+                            </span>
+                          )}
+
+                          {signal.resolved_country_code && (
+                            <span className="text-xs text-neutral-400">
+                              {signal.resolved_country_code}
+                              {signal.resolved_country_name
+                                ? ` · ${signal.resolved_country_name}`
+                                : ""}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {signal.vehicle_type &&
+                          signal.vehicle_type !==
+                            "UNKNOWN" && (
+                            <span className="rounded border border-neutral-700 bg-neutral-900 px-1.5 py-0.5 text-[10px] text-neutral-300">
+                              {signal.vehicle_type.replaceAll(
+                                "_",
+                                " "
+                              )}
+                            </span>
+                          )}
+
+                        {signal.vehicle_action &&
+                          signal.vehicle_action !==
+                            "UNKNOWN" && (
+                            <span className="rounded border border-sky-950 bg-sky-950/40 px-1.5 py-0.5 text-[10px] text-sky-300">
+                              {signal.vehicle_action.replaceAll(
+                                "_",
+                                " "
+                              )}
+                            </span>
+                          )}
+
+                        {(signal.conflict_keywords ?? []).map(
+                          (keyword) => (
+                            <span
+                              key={keyword}
+                              className="rounded border border-neutral-800 bg-neutral-900/80 px-1.5 py-0.5 text-[10px] text-neutral-500"
+                            >
+                              {keyword}
+                            </span>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </article>
             ))}

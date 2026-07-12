@@ -537,7 +537,7 @@ Day 2 is complete only when:
 # DAY 3
 ## Sources + Viral Scanner
 
-**Status:** IN PROGRESS — Task 3.1 through Task 3.3A complete; Task 3.3B active
+**Status:** IN PROGRESS — Task 3.1 through Task 3.3B complete; Task 3.3C active
 
 ### Accelerated Day 3 Task Plan
 
@@ -546,14 +546,26 @@ Day 2 is complete only when:
 - Task 3.1.1B — Source + Candidate Multi-Select and Bulk Dashboard UX ✅ COMPLETE
 - Task 3.2 — Real Watchlist Bootstrap ✅ COMPLETE
 - Task 3.3A — Watchlist Fetch Pipeline ✅ COMPLETE
-- Task 3.3B — Vehicle Shorts Traffic Radar 🔄 ACTIVE
-- Task 3.3C — Vehicle Entity + Country Resolver ⏳ NEXT
-- Task 3.3D — Country News Traffic Radar ⏳
+- Task 3.3B — Vehicle Shorts Traffic Radar ✅ COMPLETE
+- Task 3.3C — Vehicle Entity + Country Resolver 🔄 ACTIVE
+- Task 3.3D — Country News Traffic Radar ⏳ NEXT
 - Task 3.3E — Vehicle-Linked Person Traffic Radar ⏳
 - Task 3.3F — Vehicle-Centered Signal Fusion ⏳
 - Task 3.4 — Traffic Dashboard 🔄 PARTIAL
 
 Task 3.1.1 is a scalability requirement and must be completed before loading the real watchlist.
+
+### Task 3.3C — Vehicle Entity + Country Resolver
+
+Acceptance criteria:
+
+- Shorts can resolve brand/model/series/country
+- False positives are rejected
+- Entity confidence is persisted
+- Entity filters are available
+- Dashboard displays Vehicle Anchor
+- Manual lock is preserved
+- Traffic ranking is unchanged
 
 ### Source Watchlist
 
