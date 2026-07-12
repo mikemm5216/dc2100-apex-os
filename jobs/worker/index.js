@@ -9,6 +9,10 @@ const {
   processNextRun
 } = require("../../lib/scanner/engine");
 
+const {
+  processNextCountryNewsRun
+} = require("../../lib/news/engine");
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL
 });
@@ -82,6 +86,121 @@ function scheduleNextPoll(delayMs) {
   pollTimer = setTimeout(() => {
     activePoll = pollScannerQueue();
   }, delayMs);
+}
+
+// Country News queue: only polled when the Vehicle
+// Scanner queue is idle, so vehicle scanning always keeps
+// priority inside the single worker loop.
+async function pollCountryNewsQueue() {
+  try {
+    const result =
+      await processNextCountryNewsRun(
+        pool,
+        {
+          workerId,
+          onRunStarted(run) {
+            log(
+              "country_news_run_started",
+              {
+                run_id: String(run.id)
+              }
+            );
+          },
+          onCountryCompleted(country, state) {
+            log(
+              "country_news_country_completed",
+              {
+                country_code:
+                  country.country_code,
+                completed_country_count:
+                  state.completedCountryCount,
+                failed_country_count:
+                  state.failedCountryCount
+              }
+            );
+          }
+        }
+      );
+
+    if (!result) {
+      return false;
+    }
+
+    for (const item of result.errors || []) {
+      if (item.scope === "query") {
+        log(
+          "country_news_query_failed",
+          {
+            run_id: result.runId,
+            country_code: item.country_code,
+            query_key: item.query_key,
+            code: item.code,
+            message: item.message
+          }
+        );
+      }
+    }
+
+    const completionEvent =
+      result.status === "COMPLETED"
+        ? "country_news_run_completed"
+        : "country_news_run_failed";
+
+    log(
+      completionEvent,
+      {
+        run_id: result.runId,
+        status: result.status,
+        country_count: result.countryCount,
+        completed_country_count:
+          result.completedCountryCount,
+        failed_country_count:
+          result.failedCountryCount,
+        query_count: result.queryCount,
+        succeeded_query_count:
+          result.succeededQueryCount,
+        item_count: result.itemCount,
+        mention_inserted_count:
+          result.mentionInsertedCount,
+        mention_updated_count:
+          result.mentionUpdatedCount,
+        cluster_inserted_count:
+          result.clusterInsertedCount,
+        cluster_updated_count:
+          result.clusterUpdatedCount,
+        breakout_count: result.breakoutCount,
+        active_count: result.activeCount,
+        watch_count: result.watchCount,
+        low_signal_count:
+          result.lowSignalCount,
+        high_transformation_count:
+          result.highTransformationCount,
+        medium_transformation_count:
+          result.mediumTransformationCount,
+        low_transformation_count:
+          result.lowTransformationCount
+      }
+    );
+
+    return true;
+  } catch (error) {
+    if (error?.code === "42P01") {
+      log(
+        "country_news_schema_waiting",
+        {
+          message:
+            "Country news migration has not been applied yet."
+        }
+      );
+    } else {
+      logError(
+        "country_news_poll_failed",
+        error
+      );
+    }
+
+    return false;
+  }
 }
 
 async function pollScannerQueue() {
@@ -169,13 +288,23 @@ async function pollScannerQueue() {
         error
       );
     }
-  } finally {
-    scheduleNextPoll(
-      processedRun
-        ? 250
-        : pollIntervalMs
-    );
   }
+
+  // Vehicle Scanner keeps priority: the Country News
+  // queue only runs when no vehicle run was claimed.
+  if (!processedRun && !shuttingDown) {
+    const processedNewsRun =
+      await pollCountryNewsQueue();
+
+    processedRun =
+      processedRun || processedNewsRun;
+  }
+
+  scheduleNextPoll(
+    processedRun
+      ? 250
+      : pollIntervalMs
+  );
 }
 
 async function boot() {

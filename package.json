@@ -9,12 +9,16 @@
     "prestart": "node scripts/migrate.js",
     "test:scanner-core": "node scripts/test-scanner-core.js",
     "test:scanner-api": "node scripts/test-scanner-api.js",
-    "test:entity-resolver": "node scripts/test-vehicle-entity-resolver.js"
+    "test:entity-resolver": "node scripts/test-vehicle-entity-resolver.js",
+    "test:country-news-core": "node scripts/test-country-news-core.js",
+    "test:country-news-api": "node scripts/test-country-news-api.js",
+    "test:country-news-worker": "node scripts/test-country-news-worker.js"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "fast-xml-parser": "^5.10.0",
     "pg": "^8.22.0"
   }
 }

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>"germany chips" - Google News</title>
+    <link>https://news.google.com/search</link>
+    <description>Google News single-item fixture (synthetic test data)</description>
+    <item>
+      <title>Germany blocks chip exports after sanctions ruling - DW</title>
+      <link>https://news.google.com/rss/articles/fixture-de-chip-1</link>
+      <guid isPermaLink="false">fixture-de-chip-1</guid>
+      <pubDate>Sat, 11 Jul 2026 07:00:00 GMT</pubDate>
+      <description>Berlin confirms export restrictions on semiconductor equipment.</description>
+      <source url="https://www.dw.com">DW</source>
+    </item>
+  </channel>
+</rss>

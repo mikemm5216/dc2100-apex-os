@@ -810,6 +810,412 @@ export async function fetchSignals(
   );
 }
 
+export type CountryNewsTrafficTier =
+  | "BREAKOUT"
+  | "ACTIVE"
+  | "WATCH"
+  | "LOW_SIGNAL";
+
+export type CountryNewsTransformationTier =
+  | "HIGH"
+  | "MEDIUM"
+  | "LOW";
+
+export type CountryNewsCategory =
+  | "POLITICS_POLICY"
+  | "ENERGY"
+  | "WAR_SECURITY"
+  | "SANCTIONS_TRADE"
+  | "RESOURCES"
+  | "SEMICONDUCTORS_AI"
+  | "ECONOMY"
+  | "DISASTER_CLIMATE"
+  | "INFRASTRUCTURE"
+  | "INTERNATIONAL_RELATIONS"
+  | "CULTURE_SOCIETY"
+  | "OTHER";
+
+export type CountryNewsConflictArchetype =
+  | "RESOURCE_SCARCITY"
+  | "SUPPLY_CHAIN_DISRUPTION"
+  | "POWER_STRUGGLE"
+  | "TECHNOLOGY_RACE"
+  | "SANCTIONS_BLOCKADE"
+  | "INFRASTRUCTURE_FAILURE"
+  | "DISASTER_SURVIVAL"
+  | "ECONOMIC_PRESSURE"
+  | "BORDER_SECURITY"
+  | "PROPAGANDA_CULTURE";
+
+export type CountryNewsMatchMethod =
+  | "TITLE_ALIAS"
+  | "SNIPPET_ALIAS"
+  | "QUERY_CONTEXT";
+
+export type CountryNewsSort =
+  | "traffic_score"
+  | "recency"
+  | "publisher_count"
+  | "mention_count"
+  | "transformation_potential";
+
+export type CountryNewsWindowHours = 24 | 72 | 168;
+
+export type CountryNewsRecord = {
+  id: string;
+  country_id: string;
+  country_code: string;
+  country_name: string;
+
+  title: string;
+  representative_url: string;
+  representative_source: string | null;
+  representative_domain: string | null;
+
+  category: CountryNewsCategory;
+  category_confidence: string | null;
+
+  country_match_method: CountryNewsMatchMethod;
+  country_confidence: string | null;
+
+  traffic_tier: CountryNewsTrafficTier;
+  traffic_score: string;
+  mention_count: number;
+  publisher_count: number;
+  query_count: number;
+  feed_rank_score: string | null;
+  age_hours: string | null;
+
+  transformation_tier: CountryNewsTransformationTier;
+  transformation_potential: string;
+
+  conflict_archetypes: CountryNewsConflictArchetype[];
+  keywords: string[];
+
+  published_at: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+
+  provider: string;
+  resolver_version: string;
+
+  vehicle_signal_count: number;
+  qualified_vehicle_signal_count: number;
+  vehicle_views_total: string;
+  vehicle_views_max: string;
+};
+
+export type CountryNewsMention = {
+  id: string;
+  external_key: string;
+  query_key: string;
+  query_text: string;
+  feed_rank: number | null;
+
+  title: string;
+  normalized_title: string;
+  url: string;
+  guid: string | null;
+
+  source_name: string | null;
+  source_url: string | null;
+  publisher_domain: string | null;
+
+  published_at: string | null;
+  snippet: string | null;
+
+  raw_metadata: {
+    query_keys?: string[];
+    [key: string]: unknown;
+  };
+
+  first_seen_at: string;
+  last_seen_at: string;
+};
+
+export type CountryNewsDetail =
+  CountryNewsRecord & {
+    story_hash: string;
+    canonical_title: string;
+    category_evidence: Record<string, unknown>;
+    country_evidence: Record<string, unknown>;
+    raw_metadata: Record<string, unknown>;
+    mentions: CountryNewsMention[];
+  };
+
+export type CountryNewsSummary = {
+  total_count?: number;
+  breakout_count?: number;
+  active_count?: number;
+  watch_count?: number;
+  low_signal_count?: number;
+  high_transformation_count?: number;
+  medium_transformation_count?: number;
+  low_transformation_count?: number;
+  active_country_count?: number;
+  vehicle_anchor_count?: number;
+  vehicle_views_total?: string;
+};
+
+export type CountryNewsFilters = {
+  window_hours: CountryNewsWindowHours;
+  country_code: string;
+  category: CountryNewsCategory | "ALL";
+  traffic_tier: CountryNewsTrafficTier | "ALL";
+  transformation_tier:
+    | CountryNewsTransformationTier
+    | "ALL";
+  conflict_archetype:
+    | CountryNewsConflictArchetype
+    | "ALL";
+  sort: CountryNewsSort;
+  q: string;
+  limit: number;
+  offset: number;
+};
+
+export type CountryNewsResponse = {
+  data: CountryNewsRecord[];
+  count: number;
+  total_count: number;
+  summary: CountryNewsSummary;
+  filters: CountryNewsFilters;
+};
+
+export type FetchCountryNewsInput = {
+  window_hours?: CountryNewsWindowHours;
+  country_code?: string;
+  category?: CountryNewsCategory | "ALL";
+  traffic_tier?: CountryNewsTrafficTier | "ALL";
+  transformation_tier?:
+    | CountryNewsTransformationTier
+    | "ALL";
+  conflict_archetype?:
+    | CountryNewsConflictArchetype
+    | "ALL";
+  sort?: CountryNewsSort;
+  q?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export type CountryNewsRunStatus =
+  | "QUEUED"
+  | "RUNNING"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELLED";
+
+export type CountryNewsRunCountrySummary = {
+  country_id?: string;
+  country_code?: string;
+  country_name?: string;
+  vehicle_signal_count?: number;
+  qualified_vehicle_signal_count?: number;
+  vehicle_views_total?: string;
+  vehicle_views_max?: string;
+  brands?: string[];
+  models?: string[];
+};
+
+export type CountryNewsRun = {
+  id: string;
+  status: CountryNewsRunStatus;
+
+  request_payload: {
+    max_countries?: number;
+    max_queries_per_country?: number;
+    max_items_per_query?: number;
+    max_age_hours?: CountryNewsWindowHours;
+    country_codes?: string[] | null;
+  };
+
+  summary: {
+    selected_countries?: CountryNewsRunCountrySummary[];
+    country_results?: Array<{
+      country_code?: string;
+      status?: string;
+      query_count?: number;
+      succeeded_query_count?: number;
+      item_count?: number;
+      mention_count?: number;
+      cluster_count?: number;
+      message?: string;
+    }>;
+    errors?: Array<{
+      scope?: string;
+      country_code?: string;
+      query_key?: string;
+      code?: string | null;
+      message?: string;
+    }>;
+
+    breakout_count?: number;
+    active_count?: number;
+    watch_count?: number;
+    low_signal_count?: number;
+
+    high_transformation_count?: number;
+    medium_transformation_count?: number;
+    low_transformation_count?: number;
+
+    provider?: string;
+    resolver_version?: string;
+    max_age_hours?: number;
+    max_items_per_query?: number;
+    max_queries_per_country?: number;
+  };
+
+  country_count: number;
+  completed_country_count: number;
+  failed_country_count: number;
+
+  query_count: number;
+  succeeded_query_count: number;
+
+  item_count: number;
+  mention_inserted_count: number;
+  mention_updated_count: number;
+  cluster_inserted_count: number;
+  cluster_updated_count: number;
+
+  error_message: string | null;
+
+  locked_by: string | null;
+  locked_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type QueueCountryNewsRunInput = {
+  max_countries?: number;
+  max_queries_per_country?: number;
+  max_items_per_query?: number;
+  max_age_hours?: CountryNewsWindowHours;
+  country_codes?: string[] | null;
+};
+
+export async function fetchCountryNews(
+  input: FetchCountryNewsInput = {},
+  signal?: AbortSignal
+): Promise<CountryNewsResponse> {
+  const query = new URLSearchParams();
+
+  if (input.window_hours) {
+    query.set(
+      "window_hours",
+      String(input.window_hours)
+    );
+  }
+
+  if (input.country_code?.trim()) {
+    query.set(
+      "country_code",
+      input.country_code.trim()
+    );
+  }
+
+  if (input.category) {
+    query.set("category", input.category);
+  }
+
+  if (input.traffic_tier) {
+    query.set("traffic_tier", input.traffic_tier);
+  }
+
+  if (input.transformation_tier) {
+    query.set(
+      "transformation_tier",
+      input.transformation_tier
+    );
+  }
+
+  if (
+    input.conflict_archetype &&
+    input.conflict_archetype !== "ALL"
+  ) {
+    query.set(
+      "conflict_archetype",
+      input.conflict_archetype
+    );
+  }
+
+  if (input.sort) {
+    query.set("sort", input.sort);
+  }
+
+  if (input.q?.trim()) {
+    query.set("q", input.q.trim());
+  }
+
+  if (input.limit !== undefined) {
+    query.set("limit", String(input.limit));
+  }
+
+  if (input.offset !== undefined) {
+    query.set("offset", String(input.offset));
+  }
+
+  const queryString = query.toString();
+
+  return requestJson<CountryNewsResponse>(
+    `/country-news${queryString ? `?${queryString}` : ""}`,
+    {
+      method: "GET",
+      signal,
+    }
+  );
+}
+
+export async function fetchCountryNewsDetail(
+  newsId: string,
+  signal?: AbortSignal
+): Promise<CountryNewsDetail> {
+  const response =
+    await requestJson<DataResponse<CountryNewsDetail>>(
+      `/country-news/${encodeURIComponent(newsId)}`,
+      {
+        method: "GET",
+        signal,
+      }
+    );
+
+  return response.data;
+}
+
+export async function queueCountryNewsRun(
+  input: QueueCountryNewsRunInput = {}
+): Promise<CountryNewsRun> {
+  const response =
+    await requestJson<DataResponse<CountryNewsRun>>(
+      "/country-news/run",
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      }
+    );
+
+  return response.data;
+}
+
+export async function fetchCountryNewsRun(
+  runId: string,
+  signal?: AbortSignal
+): Promise<CountryNewsRun> {
+  const response =
+    await requestJson<DataResponse<CountryNewsRun>>(
+      `/country-news/runs/${encodeURIComponent(runId)}`,
+      {
+        method: "GET",
+        signal,
+      }
+    );
+
+  return response.data;
+}
+
 export async function queueScannerRun(
   input: QueueScannerRunInput = {}
 ): Promise<ScannerRun> {

@@ -9,6 +9,13 @@ const {
   listSignals
 } = require("../../../lib/scanner/api");
 
+const {
+  createCountryNewsRun,
+  getCountryNewsDetail,
+  getCountryNewsRun,
+  listCountryNews
+} = require("../../../lib/news/api");
+
 const port = process.env.PORT || 3000;
 
 const VALID_STATUSES = new Set([
@@ -1103,6 +1110,108 @@ const server = http.createServer(async (req, res) => {
         res,
         error
       );
+    }
+  }
+
+  // =======================================================
+  // COUNTRY NEWS
+  // =======================================================
+
+  if (
+    req.method === "POST" &&
+    pathname === "/country-news/run"
+  ) {
+    let body;
+
+    try {
+      body = await readJsonBody(req);
+    } catch (error) {
+      return sendJson(res, 400, {
+        error: error.message,
+        message:
+          "Request body must contain valid JSON."
+      });
+    }
+
+    try {
+      const result =
+        await createCountryNewsRun(pool, body);
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  const countryNewsRunMatch = pathname.match(
+    /^\/country-news\/runs\/([0-9]+)$/
+  );
+
+  if (
+    req.method === "GET" &&
+    countryNewsRunMatch
+  ) {
+    try {
+      const result = await getCountryNewsRun(
+        pool,
+        countryNewsRunMatch[1]
+      );
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  if (
+    req.method === "GET" &&
+    pathname === "/country-news"
+  ) {
+    try {
+      const result = await listCountryNews(
+        pool,
+        requestUrl.searchParams
+      );
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  const countryNewsMatch = pathname.match(
+    /^\/country-news\/([0-9]+)$/
+  );
+
+  if (
+    req.method === "GET" &&
+    countryNewsMatch
+  ) {
+    try {
+      const result = await getCountryNewsDetail(
+        pool,
+        countryNewsMatch[1]
+      );
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(res, error);
     }
   }
 
