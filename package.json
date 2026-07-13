@@ -21,7 +21,8 @@
     "test:fusion-core": "node scripts/test-fusion-core.js",
     "test:fusion-worker": "node scripts/test-fusion-worker.js",
     "test:fusion-api": "node scripts/test-fusion-api.js",
-    "test:autoflow-core": "node scripts/test-autoflow-core.js"
+    "test:autoflow-core": "node scripts/test-autoflow-core.js",
+    "test:autoflow-api": "node scripts/test-autoflow-api.js"
   },
   "engines": {
     "node": ">=20"
