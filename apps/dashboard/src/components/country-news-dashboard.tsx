@@ -269,7 +269,9 @@ export function CountryNewsDashboard() {
 
   useEffect(() => {
     if (!expandedId) {
-      setDetail(null);
+      // Nothing to fetch. Stale detail is harmless: the
+      // panel that reads it is only rendered when
+      // expandedId === story.id, which is false here.
       return;
     }
 

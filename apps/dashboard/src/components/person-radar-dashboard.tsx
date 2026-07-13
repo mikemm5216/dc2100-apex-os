@@ -386,7 +386,9 @@ export function PersonRadarDashboard() {
 
   useEffect(() => {
     if (!expandedId) {
-      setDetail(null);
+      // Nothing to fetch. Stale detail is harmless: the
+      // panel that reads it is only rendered when
+      // expandedId === person.id, which is false here.
       return;
     }
 
