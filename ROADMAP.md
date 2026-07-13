@@ -537,7 +537,7 @@ Day 2 is complete only when:
 # DAY 3
 ## Sources + Viral Scanner
 
-**Status:** IN PROGRESS — Task 3.1 through Task 3.3E complete; Task 3.3E.1 active
+**Status:** IN PROGRESS — Tasks 3.1 through 3.3F are complete; Task 3.3G is active.
 
 ### Accelerated Day 3 Task Plan
 
@@ -550,9 +550,9 @@ Day 2 is complete only when:
 - Task 3.3C — Vehicle Entity + Country Resolver ✅ COMPLETE
 - Task 3.3D — Country News Traffic Radar ✅ COMPLETE
 - Task 3.3E — Vehicle-Linked Person Traffic Radar ✅ COMPLETE
-- Task 3.3E.1 — Historical Person Resonance Layer 🔄 ACTIVE
-- Task 3.3F — Vehicle-Centered Signal Fusion 🔄 ACTIVE
-- Task 3.3G — AutoFlow Orchestrator ⏳
+- Task 3.3E.1 — Historical Person Resonance Layer ✅ COMPLETE
+- Task 3.3F — Vehicle-Centered Signal Fusion ✅ COMPLETE
+- Task 3.3G — AutoFlow Orchestrator 🔄 ACTIVE
 - Task 3.4 — Traffic Dashboard 🔄 PARTIAL
 
 Task 3.1.1 is a scalability requirement and must be completed before loading the real watchlist.
