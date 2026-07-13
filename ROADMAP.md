@@ -551,7 +551,7 @@ Day 2 is complete only when:
 - Task 3.3D — Country News Traffic Radar ✅ COMPLETE
 - Task 3.3E — Vehicle-Linked Person Traffic Radar ✅ COMPLETE
 - Task 3.3E.1 — Historical Person Resonance Layer 🔄 ACTIVE
-- Task 3.3F — Vehicle-Centered Signal Fusion ⏳ NEXT
+- Task 3.3F — Vehicle-Centered Signal Fusion 🔄 ACTIVE
 - Task 3.3G — AutoFlow Orchestrator ⏳
 - Task 3.4 — Traffic Dashboard 🔄 PARTIAL
 
@@ -619,6 +619,144 @@ Acceptance criteria:
 - Country News Radar remains unchanged
 - No Fusion implemented
 - No AutoFlow implemented
+
+### Task 3.3F — Vehicle-Centered Signal Fusion
+
+Acceptance criteria:
+
+- Every fusion candidate is anchored to exactly one resolved vehicle
+  (vehicles.id). Vehicle-centered does not mean one result per vehicle:
+  a vehicle may produce multiple candidates when meaningfully different
+  eligible news/person evidence combinations exist for it.
+
+- A fusion candidate requires a resolved vehicle, a resolved vehicle
+  country, and one eligible country-matched country news signal.
+  country_news_signal_id is NOT NULL on every candidate. Only person_id
+  may be NULL. If no eligible country-matched news exists for a vehicle,
+  that vehicle/evidence combination is skipped entirely — no candidate is
+  created — and the reason NO_COUNTRY_NEWS_SIGNAL is persisted in the
+  run's summary/errors.
+
+- Candidate uniqueness within one run is enforced as:
+    (run_id, vehicle_id, country_news_signal_id, COALESCE(person_id, -1))
+  so the same evidence combination can never produce duplicate candidates
+  in a run, and re-running upserts rather than duplicates.
+
+- Qualified vehicle signals (signals.qualified = true) are deduplicated by
+  their real signal/video identity while calculating the vehicle traffic
+  component for one vehicle. Actual Views (signals.views, aggregated via
+  resolved_vehicle_id) is the primary raw traffic evidence. The resulting
+  vehicle traffic score and evidence snapshot are computed once per
+  vehicle per run and reused across every valid news/person candidate
+  anchored to that vehicle — evidence is never consumed or removed after
+  the first candidate. The vehicle traffic component's weight is higher
+  than every other individual component. Normalization reuses the
+  log10-scaled view formula already validated in
+  lib/person/metrics.js (vehicleViewsScore), scaled to the fusion
+  component's own 0-100 range — it is not a new, unvalidated formula.
+
+- Country News Traffic Proxy (country_news_signals.traffic_score) is a
+  proxy signal and must never be described or documented as article
+  views. It only contributes when country-matched: the country news
+  signal's country_id must equal the candidate vehicle's resolved country
+  (signals.resolved_country_id). Cross-country news is excluded, never
+  used as a fallback.
+
+- Country Crisis Category (country_news_signals.category and
+  conflict_archetypes) is carried as explicit categorical evidence/context
+  on the candidate — not collapsed into a single blended number.
+
+- Person link eligibility and tiering reuse the actual persisted
+  vehicle_person_links schema and resolver conventions
+  (lib/person/resolver.js) — no new tier taxonomy is invented. A link is
+  eligible when its vehicle_id, or its vehicle_brand/vehicle_series/
+  vehicle_model, matches the candidate vehicle's own resolved brand/
+  series/model (read from the vehicle's qualified signals). Tiering:
+    - EXACT_VEHICLE: the link's vehicle_id matches the candidate vehicle,
+      or its vehicle_model matches the candidate vehicle's model
+    - SAME_SERIES: brand and series match, model does not
+    - SAME_BRAND: only brand matches
+  Ranking is strictly EXACT_VEHICLE > SAME_SERIES > SAME_BRAND. Links with
+  no relation to the candidate vehicle's brand are excluded entirely, at
+  no weight. No popularity from an unrelated person may bypass this
+  eligibility check.
+
+- Vehicle-Person Link Confidence is persisted as its own component
+  (vehicle_person_link_confidence_score), derived from the underlying
+  link_confidence and capped per tier so a SAME_BRAND link can never score
+  as high as an EXACT_VEHICLE link.
+
+- Person Current Traffic (person_traffic_signals.traffic_score) and
+  Historical Resonance are persisted as two separate component scores
+  (person_current_traffic_score, person_historical_resonance_score) and
+  are never blended into one number before storage:
+    - Historical Resonance is read from its actual authoritative source —
+      the per-(person, vehicle) link row (vehicle_person_links.
+      historical_resonance_score / historical_resonance_tier /
+      evidence_horizon) for the specific link used by the candidate — not
+      assumed to live on person_traffic_signals.
+    - Historical Resonance must never be described as historical traffic.
+    - Historical Resonance must not alter the stored Current Person
+      Traffic score.
+  Both are surfaced independently in fusion evidence and on the
+  dashboard, alongside the link's relationship_scope (evidence_horizon).
+
+- Transformation Potential is a required fusion input
+  (transformation_potential_score). It reuses the transformation_potential
+  fields that already exist and are already computed on
+  country_news_signals and person_traffic_signals — no new Fusion-layer
+  transformation formula is implemented. This task only persists the
+  score as an input — it does not implement DC 2100 transformation,
+  script generation, or prompt output.
+
+- The complete Fusion inputs are: Vehicle Traffic, Country News Traffic
+  Proxy, Country Crisis Category, Person Current Traffic, Person
+  Historical Resonance, Vehicle-Person Link Confidence, Transformation
+  Potential.
+
+- All numeric components are stored as 0-100 normalized values.
+  fusion_score (0-100) is computed via a fixed, versioned
+  (fusion_version), documented weighted formula — no opaque or
+  ML-derived weighting.
+
+- Missing-person handling (NO_PERSON_SIGNAL):
+    - missing_signals array contains "NO_PERSON_SIGNAL"
+    - person_id is NULL
+    - person_current_traffic_score, person_historical_resonance_score,
+      and vehicle_person_link_confidence_score remain NULL (never a
+      numeric zero record standing in for an absent person)
+    - the effective person contribution to fusion_score is 0
+    - weights are NOT redistributed to the remaining components — a
+      NO_PERSON_SIGNAL candidate must not outrank a candidate with a
+      strong, valid vehicle-person link under otherwise similar
+      conditions merely because of renormalization
+    - the candidate remains eligible and visible, but is visibly marked
+      incomplete (missing_signals non-empty, is_complete = false)
+
+- Every candidate stores a fusion_evidence JSONB snapshot grouped by
+  evidence domain (vehicle, country news, person current, historical
+  relationship, transformation): the exact source record ids and raw
+  values used at scoring time, so results are reproducible and auditable
+  without re-querying live tables. Re-running fusion on unchanged inputs
+  produces an identical score.
+
+- Fusion runs are persisted in fusion_runs using the existing run
+  convention exactly — the same statuses already present in the
+  scanner/country-news/person-radar CHECK constraints (QUEUED, RUNNING,
+  COMPLETED, FAILED, CANCELLED), locked_by/locked_at, started_at/
+  completed_at, error_message, request_payload, summary. No new status
+  is introduced.
+
+- Delivered across all layers: migration, /fusion API routes (supporting
+  multiple candidates per vehicle — no single vehicle-keyed detail
+  endpoint), a Worker queue poller (manual Run Now only — no cron, no
+  scheduler, consistent with Person Radar's boundary), the existing
+  Candidates dashboard extended with a Fusion Candidates tab alongside
+  the unchanged Content Candidates tab, and automated tests following
+  the existing test:* script pattern.
+
+- Explicitly out of scope: scripts, prompts, DC 2100 transformation,
+  publishing, scheduler, cron, or AutoFlow. Run Now trigger only.
 
 ### Source Watchlist
 

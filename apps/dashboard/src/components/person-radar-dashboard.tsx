@@ -386,17 +386,26 @@ export function PersonRadarDashboard() {
 
   useEffect(() => {
     if (!expandedId) {
-      setDetail(null);
+      // Nothing to fetch. Stale detail is harmless: the
+      // panel that reads it is only rendered when
+      // expandedId === person.id, which is false here.
       return;
     }
 
+    const detailId = expandedId;
     const controller = new AbortController();
 
-    setIsDetailLoading(true);
+    async function loadDetail() {
+      setIsDetailLoading(true);
 
-    fetchPersonRadarDetail(expandedId, controller.signal)
-      .then((payload) => setDetail(payload))
-      .catch((detailError) => {
+      try {
+        const payload = await fetchPersonRadarDetail(
+          detailId,
+          controller.signal
+        );
+
+        setDetail(payload);
+      } catch (detailError) {
         if (
           detailError instanceof DOMException &&
           detailError.name === "AbortError"
@@ -409,12 +418,14 @@ export function PersonRadarDashboard() {
             ? detailError.message
             : "Failed to load person evidence."
         );
-      })
-      .finally(() => {
+      } finally {
         if (!controller.signal.aborted) {
           setIsDetailLoading(false);
         }
-      });
+      }
+    }
+
+    loadDetail();
 
     return () => controller.abort();
   }, [expandedId]);

@@ -17,6 +17,10 @@ const {
   processNextPersonRadarRun
 } = require("../../lib/person/engine");
 
+const {
+  processNextFusionRun
+} = require("../../lib/fusion/engine");
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL
 });
@@ -323,6 +327,108 @@ async function pollPersonRadarQueue() {
   }
 }
 
+// Fusion queue: manual Run Now only, same as Person Radar.
+// Fusion never fetches new evidence — it only aggregates
+// what the other three queues already persisted, so it
+// carries no schema-waiting fallback of its own beyond the
+// standard 42P01 guard.
+async function pollFusionQueue() {
+  try {
+    const result = await processNextFusionRun(
+      pool,
+      {
+        workerId,
+        onRunStarted(run) {
+          log(
+            "fusion_run_started",
+            {
+              run_id: String(run.id)
+            }
+          );
+        },
+        onVehicleCompleted(vehicle, state) {
+          log(
+            "fusion_vehicle_completed",
+            {
+              vehicle_code: vehicle.vehicle_code,
+              completed_vehicle_count:
+                state.completedVehicleCount,
+              skipped_vehicle_count:
+                state.skippedVehicleCount
+            }
+          );
+        }
+      }
+    );
+
+    if (!result) {
+      return false;
+    }
+
+    for (const item of result.errors || []) {
+      if (item.code === "NO_COUNTRY_NEWS_SIGNAL") {
+        log(
+          "fusion_vehicle_skipped",
+          {
+            run_id: result.runId,
+            vehicle_code: item.vehicle_code,
+            code: item.code,
+            message: item.message
+          }
+        );
+      }
+    }
+
+    const completionEvent =
+      result.status === "COMPLETED"
+        ? "fusion_run_completed"
+        : "fusion_run_failed";
+
+    log(
+      completionEvent,
+      {
+        run_id: result.runId,
+        status: result.status,
+        vehicle_count: result.vehicleCount,
+        completed_vehicle_count:
+          result.completedVehicleCount,
+        skipped_vehicle_count:
+          result.skippedVehicleCount,
+        candidate_count: result.candidateCount,
+        candidate_inserted_count:
+          result.candidateInsertedCount,
+        candidate_updated_count:
+          result.candidateUpdatedCount,
+        complete_candidate_count:
+          result.completeCandidateCount,
+        incomplete_candidate_count:
+          result.incompleteCandidateCount,
+        exact_vehicle_count: result.exactVehicleCount,
+        same_series_count: result.sameSeriesCount,
+        same_brand_count: result.sameBrandCount,
+        no_person_signal_count:
+          result.noPersonSignalCount
+      }
+    );
+
+    return true;
+  } catch (error) {
+    if (error?.code === "42P01") {
+      log(
+        "fusion_schema_waiting",
+        {
+          message:
+            "Fusion migration has not been applied yet."
+        }
+      );
+    } else {
+      logError("fusion_poll_failed", error);
+    }
+
+    return false;
+  }
+}
+
 async function pollVehicleScannerQueue() {
   let processedRun = false;
 
@@ -409,14 +515,15 @@ async function pollVehicleScannerQueue() {
   return processedRun;
 }
 
-// Simple fair rotation across the three queues inside the
+// Simple fair rotation across the four queues inside the
 // single polling loop. Each poll starts at a rotating
 // cursor and stops after the first queue that processed a
 // run, so no queue can permanently starve another.
 const QUEUE_POLLERS = [
   pollVehicleScannerQueue,
   pollCountryNewsQueue,
-  pollPersonRadarQueue
+  pollPersonRadarQueue,
+  pollFusionQueue
 ];
 
 let queueCursor = 0;

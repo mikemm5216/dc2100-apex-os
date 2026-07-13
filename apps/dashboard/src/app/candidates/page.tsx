@@ -1,13 +1,13 @@
-import { CandidatesTable } from "@/components/candidates-table";
+import { CandidatesTabs } from "@/components/candidates-tabs";
 import { SectionPage } from "@/components/section-page";
 
 export default function CandidatesPage() {
   return (
     <SectionPage
       title="Candidates"
-      description="Review ranked DC 2100 content candidates and their current workflow state."
+      description="Review vehicle-centered fusion candidates and ranked DC 2100 content candidates."
     >
-      <CandidatesTable />
+      <CandidatesTabs />
     </SectionPage>
   );
 }

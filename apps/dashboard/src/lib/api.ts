@@ -1880,3 +1880,288 @@ export async function fetchScannerRun(
 
   return response.data;
 }
+
+// =========================================================
+// FUSION (Task 3.3F)
+// =========================================================
+
+export type FusionRunStatus =
+  | "QUEUED"
+  | "RUNNING"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELLED";
+
+export type FusionPersonLinkTier =
+  | "EXACT_VEHICLE"
+  | "SAME_SERIES"
+  | "SAME_BRAND";
+
+export type FusionMissingSignal =
+  | "NO_PERSON_SIGNAL"
+  | "NO_HISTORICAL_RESONANCE";
+
+export type FusionRun = {
+  id: string;
+  status: FusionRunStatus;
+
+  request_payload: {
+    max_vehicles?: number;
+    vehicle_window_days?: 3 | 7 | 14 | 30;
+    news_window_hours?: 24 | 72 | 168;
+    max_news_per_vehicle?: number;
+    max_people_per_vehicle?: number;
+    vehicle_ids?: string[] | null;
+  };
+
+  summary: {
+    vehicle_results?: Array<{
+      vehicle_code?: string;
+      status?: string;
+      code?: string;
+      message?: string;
+      country_news_count?: number;
+      person_link_count?: number;
+      candidate_count?: number;
+    }>;
+    errors?: Array<{
+      scope?: string;
+      vehicle_code?: string;
+      code?: string | null;
+      message?: string;
+    }>;
+
+    complete_candidate_count?: number;
+    incomplete_candidate_count?: number;
+
+    exact_vehicle_tier_count?: number;
+    same_series_tier_count?: number;
+    same_brand_tier_count?: number;
+    no_person_signal_count?: number;
+
+    fusion_version?: string;
+    vehicle_window_days?: number;
+    news_window_hours?: number;
+    max_vehicles?: number;
+    max_news_per_vehicle?: number;
+    max_people_per_vehicle?: number;
+  };
+
+  vehicle_count: number;
+  completed_vehicle_count: number;
+  skipped_vehicle_count: number;
+  candidate_count: number;
+  candidate_inserted_count: number;
+  candidate_updated_count: number;
+
+  error_message: string | null;
+
+  locked_by: string | null;
+  locked_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type QueueFusionRunInput = {
+  max_vehicles?: number;
+  vehicle_window_days?: 3 | 7 | 14 | 30;
+  news_window_hours?: 24 | 72 | 168;
+  max_news_per_vehicle?: number;
+  max_people_per_vehicle?: number;
+  vehicle_ids?: Array<string | number> | null;
+};
+
+export type FusionCandidate = {
+  id: string;
+  run_id: string;
+
+  vehicle_id: string;
+  vehicle_code: string;
+  vehicle_name: string;
+
+  country_id: string;
+  country_code: string | null;
+  country_name: string | null;
+
+  country_news_signal_id: string;
+  country_news_title: string | null;
+  country_news_url: string | null;
+
+  person_id: string | null;
+  person_slug: string | null;
+  person_canonical_name: string | null;
+  vehicle_person_link_id: string | null;
+  person_link_tier: FusionPersonLinkTier | null;
+
+  qualified_vehicle_signal_count: number;
+  vehicle_views_total: string;
+  vehicle_views_max: string;
+  vehicle_viral_tier: SignalViralTier | null;
+  vehicle_traffic_score: string;
+
+  country_news_category: CountryNewsCategory;
+  country_news_conflict_archetypes: CountryNewsConflictArchetype[];
+  country_news_traffic_proxy_score: string;
+
+  person_current_traffic_score: string | null;
+
+  person_historical_resonance_score: string | null;
+  person_historical_resonance_tier:
+    | PersonHistoricalResonanceTier
+    | null;
+  relationship_scope: PersonRelationshipScope | null;
+  vehicle_person_link_confidence_score: string | null;
+
+  transformation_potential_score: string;
+
+  fusion_score: string;
+  fusion_version: string;
+  missing_signals: FusionMissingSignal[];
+  is_complete: boolean;
+
+  created_at: string;
+  updated_at: string;
+};
+
+export type FusionCandidateDetail = FusionCandidate & {
+  fusion_evidence: {
+    fusion_version?: string;
+    vehicle?: Record<string, unknown>;
+    country_news?: Record<string, unknown>;
+    person_current?: Record<string, unknown> | null;
+    historical_relationship?: Record<string, unknown> | null;
+    transformation?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
+};
+
+export type FusionCandidateSort =
+  | "fusion_score"
+  | "vehicle_views"
+  | "transformation_potential"
+  | "recency";
+
+export type FusionCandidatesSummary = {
+  candidate_count?: number;
+  distinct_vehicle_count?: number;
+  complete_count?: number;
+  incomplete_count?: number;
+  exact_vehicle_count?: number;
+  same_series_count?: number;
+  same_brand_count?: number;
+  no_person_signal_count?: number;
+  average_fusion_score?: string | null;
+};
+
+export type FusionCandidatesFilters = {
+  run_id: string | null;
+  vehicle_id: string | null;
+  country_code: string;
+  person_link_tier: FusionPersonLinkTier | "ALL" | "NO_PERSON_SIGNAL";
+  is_complete: "ALL" | "TRUE" | "FALSE";
+  sort: FusionCandidateSort;
+  q: string;
+  limit: number;
+  offset: number;
+};
+
+export type FusionCandidatesResponse = {
+  data: FusionCandidate[];
+  count: number;
+  total_count: number;
+  summary: FusionCandidatesSummary;
+  filters: FusionCandidatesFilters;
+};
+
+export type FetchFusionCandidatesInput = {
+  run_id?: string | null;
+  vehicle_id?: string | null;
+  country_code?: string;
+  person_link_tier?:
+    | FusionPersonLinkTier
+    | "ALL"
+    | "NO_PERSON_SIGNAL";
+  is_complete?: "ALL" | "TRUE" | "FALSE";
+  sort?: FusionCandidateSort;
+  q?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export async function fetchFusionCandidates(
+  input: FetchFusionCandidatesInput = {},
+  signal?: AbortSignal
+): Promise<FusionCandidatesResponse> {
+  const query = new URLSearchParams();
+
+  if (input.run_id) query.set("run_id", input.run_id);
+  if (input.vehicle_id) query.set("vehicle_id", input.vehicle_id);
+  if (input.country_code?.trim())
+    query.set("country_code", input.country_code.trim());
+  if (input.person_link_tier)
+    query.set("person_link_tier", input.person_link_tier);
+  if (input.is_complete) query.set("is_complete", input.is_complete);
+  if (input.sort) query.set("sort", input.sort);
+  if (input.q?.trim()) query.set("q", input.q.trim());
+  if (input.limit !== undefined) query.set("limit", String(input.limit));
+  if (input.offset !== undefined) query.set("offset", String(input.offset));
+
+  const queryString = query.toString();
+
+  return requestJson<FusionCandidatesResponse>(
+    `/fusion/candidates${queryString ? `?${queryString}` : ""}`,
+    {
+      method: "GET",
+      signal,
+    }
+  );
+}
+
+export async function fetchFusionCandidateDetail(
+  candidateId: string,
+  signal?: AbortSignal
+): Promise<FusionCandidateDetail> {
+  const response =
+    await requestJson<DataResponse<FusionCandidateDetail>>(
+      `/fusion/candidates/${encodeURIComponent(candidateId)}`,
+      {
+        method: "GET",
+        signal,
+      }
+    );
+
+  return response.data;
+}
+
+export async function queueFusionRun(
+  input: QueueFusionRunInput = {}
+): Promise<FusionRun> {
+  const response =
+    await requestJson<DataResponse<FusionRun>>(
+      "/fusion/run",
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      }
+    );
+
+  return response.data;
+}
+
+export async function fetchFusionRun(
+  runId: string,
+  signal?: AbortSignal
+): Promise<FusionRun> {
+  const response =
+    await requestJson<DataResponse<FusionRun>>(
+      `/fusion/runs/${encodeURIComponent(runId)}`,
+      {
+        method: "GET",
+        signal,
+      }
+    );
+
+  return response.data;
+}

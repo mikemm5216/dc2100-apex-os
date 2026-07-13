@@ -17,7 +17,10 @@
     "test:person-core": "node scripts/test-person-core.js",
     "test:person-api": "node scripts/test-person-api.js",
     "test:person-worker": "node scripts/test-person-worker.js",
-    "test:person-resonance": "node scripts/test-person-resonance.js"
+    "test:person-resonance": "node scripts/test-person-resonance.js",
+    "test:fusion-core": "node scripts/test-fusion-core.js",
+    "test:fusion-worker": "node scripts/test-fusion-worker.js",
+    "test:fusion-api": "node scripts/test-fusion-api.js"
   },
   "engines": {
     "node": ">=20"

@@ -269,17 +269,26 @@ export function CountryNewsDashboard() {
 
   useEffect(() => {
     if (!expandedId) {
-      setDetail(null);
+      // Nothing to fetch. Stale detail is harmless: the
+      // panel that reads it is only rendered when
+      // expandedId === story.id, which is false here.
       return;
     }
 
+    const detailId = expandedId;
     const controller = new AbortController();
 
-    setIsDetailLoading(true);
+    async function loadDetail() {
+      setIsDetailLoading(true);
 
-    fetchCountryNewsDetail(expandedId, controller.signal)
-      .then((payload) => setDetail(payload))
-      .catch((detailError) => {
+      try {
+        const payload = await fetchCountryNewsDetail(
+          detailId,
+          controller.signal
+        );
+
+        setDetail(payload);
+      } catch (detailError) {
         if (
           detailError instanceof DOMException &&
           detailError.name === "AbortError"
@@ -292,12 +301,14 @@ export function CountryNewsDashboard() {
             ? detailError.message
             : "Failed to load news evidence."
         );
-      })
-      .finally(() => {
+      } finally {
         if (!controller.signal.aborted) {
           setIsDetailLoading(false);
         }
-      });
+      }
+    }
+
+    loadDetail();
 
     return () => controller.abort();
   }, [expandedId]);
