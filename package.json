@@ -16,7 +16,8 @@
     "test:person-resolver": "node scripts/test-person-resolver.js",
     "test:person-core": "node scripts/test-person-core.js",
     "test:person-api": "node scripts/test-person-api.js",
-    "test:person-worker": "node scripts/test-person-worker.js"
+    "test:person-worker": "node scripts/test-person-worker.js",
+    "test:person-resonance": "node scripts/test-person-resonance.js"
   },
   "engines": {
     "node": ">=20"

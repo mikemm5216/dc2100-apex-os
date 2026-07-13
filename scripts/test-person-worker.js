@@ -80,6 +80,7 @@ function createMockDb({ anchors, queuedRuns }) {
     nextPersonId: 1,
     nextSignalId: 1,
     nextMentionId: 1,
+    nextLinkId: 1,
     anchors
   };
 
@@ -188,7 +189,13 @@ function createMockDb({ anchors, queuedRuns }) {
         return { rows: [], rowCount: 0 };
       }
 
+      const linkId = existing
+        ? existing.id
+        : state.nextLinkId++;
+
       state.links.set(key, {
+        ...existing,
+        id: linkId,
         person_id: values[0],
         vehicle_brand: values[2],
         vehicle_series: values[3],
@@ -196,8 +203,49 @@ function createMockDb({ anchors, queuedRuns }) {
         relation_type: values[5],
         link_confidence: values[6],
         link_method: values[7],
-        locked: existing ? existing.locked : false
+        locked: existing ? existing.locked : false,
+        resonance_locked: existing
+          ? Boolean(existing.resonance_locked)
+          : false
       });
+
+      return { rows: [], rowCount: 1 };
+    }
+
+    // Resonance: load persisted links for one person.
+    if (
+      sql.includes("FROM vehicle_person_links") &&
+      sql.includes("WHERE person_id")
+    ) {
+      const rows = [...state.links.values()].filter(
+        link => link.person_id === values[0]
+      );
+
+      return { rows, rowCount: rows.length };
+    }
+
+    // Resonance: link update honors resonance_locked.
+    if (sql.includes("UPDATE vehicle_person_links")) {
+      for (const link of state.links.values()) {
+        if (
+          link.id === values[0] &&
+          !link.resonance_locked
+        ) {
+          link.evidence_horizon = values[1];
+          link.iconic_association = values[2];
+          link.legacy_association = values[3];
+          link.recognition_weight = values[4];
+          link.association_start_year = values[5];
+          link.association_end_year = values[6];
+          link.historical_resonance_score =
+            values[7];
+          link.historical_resonance_tier = values[8];
+          link.resonance_evidence = JSON.parse(
+            values[9]
+          );
+          link.resonance_version = values[10];
+        }
+      }
 
       return { rows: [], rowCount: 1 };
     }
@@ -303,6 +351,33 @@ function createMockDb({ anchors, queuedRuns }) {
       );
 
       return { rows, rowCount: rows.length };
+    }
+
+    // Resonance: per-scope person scores. Checked BEFORE
+    // the generic finalize update.
+    if (
+      sql.includes(
+        "UPDATE person_traffic_signals"
+      ) &&
+      sql.includes("historical_resonance_scores")
+    ) {
+      const signal = state.signals.get(values[0]);
+
+      if (signal) {
+        signal.historical_resonance_scores =
+          JSON.parse(values[1]);
+        signal.historical_resonance_tiers =
+          JSON.parse(values[2]);
+        signal.historical_resonance_score = values[3];
+        signal.historical_resonance_tier = values[4];
+        signal.primary_resonance_link_id = values[5];
+        signal.resonance_version = values[6];
+        signal.resonance_evidence = JSON.parse(
+          values[7]
+        );
+      }
+
+      return { rows: [], rowCount: 1 };
     }
 
     // Finalize person signal.
@@ -576,6 +651,106 @@ async function run() {
     2
   );
 
+  // -------------------------------------------------------
+  // Historical resonance: parallel catalog-based layer.
+  // -------------------------------------------------------
+
+  // lei-jun (RECOGNIZABLE), elon-musk (ESTABLISHED),
+  // mat-watson (NICHE) — all ONE_YEAR evidence, so every
+  // scope is scored.
+  assert.equal(happyResult.resonanceScoredCount, 3);
+  assert.equal(happyResult.resonanceUnscoredCount, 0);
+
+  assert.equal(
+    happyResult.resonanceCounters
+      .all_time_established_count,
+    1
+  );
+  assert.equal(
+    happyResult.resonanceCounters
+      .all_time_recognizable_count,
+    1
+  );
+  assert.equal(
+    happyResult.resonanceCounters
+      .all_time_niche_count,
+    1
+  );
+  assert.equal(
+    happyResult.resonanceCounters
+      .all_time_iconic_count,
+    0
+  );
+  assert.equal(
+    happyResult.resonanceCounters
+      .one_year_established_count,
+    1
+  );
+  assert.equal(
+    happyResult.resonanceCounters
+      .ten_year_recognizable_count,
+    1
+  );
+
+  assert.equal(summary.resonance_scored_count, 3);
+  assert.equal(summary.resonance_unscored_count, 0);
+  assert.equal(summary.all_time_established_count, 1);
+  assert.equal(
+    summary.resonance_version,
+    "vehicle-person-resonance-v1"
+  );
+
+  // Per-scope scores persisted on the signal; the
+  // top-level value is the ALL_TIME default.
+  assert.ok(
+    leiJunSignal.historical_resonance_scores
+      .ONE_YEAR > 0
+  );
+  assert.equal(
+    leiJunSignal.historical_resonance_scores
+      .ONE_YEAR,
+    leiJunSignal.historical_resonance_scores.ALL_TIME
+  );
+  assert.equal(
+    leiJunSignal.historical_resonance_score,
+    leiJunSignal.historical_resonance_scores.ALL_TIME
+  );
+  assert.equal(
+    leiJunSignal.historical_resonance_tiers.ALL_TIME,
+    leiJunSignal.historical_resonance_tier
+  );
+  assert.equal(
+    leiJunSignal.resonance_version,
+    "vehicle-person-resonance-v1"
+  );
+  assert.ok(
+    leiJunSignal.primary_resonance_link_id,
+    "Primary resonance link id must be persisted."
+  );
+
+  // Link resonance persisted with catalog evidence.
+  const leiJunLink = [
+    ...happy.state.links.values()
+  ].find(
+    link =>
+      link.person_id === leiJunId &&
+      link.vehicle_brand === "Xiaomi"
+  );
+
+  assert.ok(leiJunLink);
+  assert.equal(
+    leiJunLink.evidence_horizon,
+    "ONE_YEAR"
+  );
+  assert.ok(
+    leiJunLink.historical_resonance_score > 0
+  );
+  assert.equal(
+    typeof leiJunLink.resonance_evidence
+      .resonance_label,
+    "string"
+  );
+
   // Fair queue handling: a drained queue returns null
   // immediately, so the worker loop can serve the other
   // queues without blocking.
@@ -825,6 +1000,22 @@ async function run() {
   assert.ok(
     Number(noNewsSignal.traffic_score) > 0,
     "Vehicle attention alone must still produce a score."
+  );
+
+  // Historical resonance is INDEPENDENT of traffic and
+  // news evidence: with zero news mentions the resonance
+  // values are identical to the full-news run.
+  assert.equal(
+    noNewsSignal.historical_resonance_score,
+    leiJunSignal.historical_resonance_score
+  );
+  assert.deepEqual(
+    noNewsSignal.historical_resonance_scores,
+    leiJunSignal.historical_resonance_scores
+  );
+  assert.equal(
+    noNewsSignal.historical_resonance_tier,
+    leiJunSignal.historical_resonance_tier
   );
 
   console.log(

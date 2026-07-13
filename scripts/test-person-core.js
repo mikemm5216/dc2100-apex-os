@@ -79,7 +79,16 @@ function catalogEntry(overrides = {}) {
         series: null,
         model: null,
         relationType: "OTHER",
-        confidence: 0.5
+        confidence: 0.5,
+
+        evidenceHorizon: "ONE_YEAR",
+        iconicAssociation: false,
+        legacyAssociation: false,
+        recognitionWeight: 0.5,
+        associationStartYear: null,
+        associationEndYear: null,
+        resonanceLabel:
+          "Test person durable association."
       }
     ],
     ...overrides

@@ -537,7 +537,7 @@ Day 2 is complete only when:
 # DAY 3
 ## Sources + Viral Scanner
 
-**Status:** IN PROGRESS — Task 3.1 through Task 3.3D complete; Task 3.3E active
+**Status:** IN PROGRESS — Task 3.1 through Task 3.3E complete; Task 3.3E.1 active
 
 ### Accelerated Day 3 Task Plan
 
@@ -549,7 +549,8 @@ Day 2 is complete only when:
 - Task 3.3B — Vehicle Shorts Traffic Radar ✅ COMPLETE
 - Task 3.3C — Vehicle Entity + Country Resolver ✅ COMPLETE
 - Task 3.3D — Country News Traffic Radar ✅ COMPLETE
-- Task 3.3E — Vehicle-Linked Person Traffic Radar 🔄 ACTIVE
+- Task 3.3E — Vehicle-Linked Person Traffic Radar ✅ COMPLETE
+- Task 3.3E.1 — Historical Person Resonance Layer 🔄 ACTIVE
 - Task 3.3F — Vehicle-Centered Signal Fusion ⏳ NEXT
 - Task 3.3G — AutoFlow Orchestrator ⏳
 - Task 3.4 — Traffic Dashboard 🔄 PARTIAL
@@ -600,6 +601,24 @@ Acceptance criteria:
 - Person dashboard is operational
 - No automatic scheduling exists yet
 - No final Vehicle-News-Person fusion exists yet
+
+### Task 3.3E.1 — Historical Person Resonance Layer
+
+Acceptance criteria:
+
+- Person current traffic remains unchanged
+- Relationship scopes support 1Y / 10Y / All Time
+- Historical resonance is catalog-based
+- Historical traffic is never fabricated
+- Iconic associations are persisted
+- Scope scores are persisted separately
+- Vehicle-person links retain evidence
+- Resonance locks are preserved
+- Dashboard shows current traffic and resonance separately
+- Vehicle Radar remains unchanged
+- Country News Radar remains unchanged
+- No Fusion implemented
+- No AutoFlow implemented
 
 ### Source Watchlist
 

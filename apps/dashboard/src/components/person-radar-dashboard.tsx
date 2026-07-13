@@ -16,6 +16,7 @@ import {
 
 import type {
   PersonAttentionArchetype,
+  PersonHistoricalResonanceTier,
   PersonNewsAgeHours,
   PersonRadarDetail,
   PersonRadarResponse,
@@ -23,10 +24,12 @@ import type {
   PersonRadarSort,
   PersonRadarWindowHours,
   PersonRelationType,
+  PersonRelationshipScope,
   PersonRoleCategory,
   PersonTrafficRecord,
   PersonTrafficTier,
   PersonTransformationTier,
+  PersonVehicleLink,
   PersonVehicleWindowDays,
 } from "@/lib/api";
 
@@ -107,6 +110,41 @@ const transformationBadgeStyles: Record<
     "border-neutral-700 bg-neutral-900 text-neutral-400",
 };
 
+const relationshipScopeOptions: Array<{
+  value: PersonRelationshipScope;
+  label: string;
+}> = [
+  { value: "ONE_YEAR", label: "1 Year" },
+  { value: "TEN_YEARS", label: "10 Years" },
+  { value: "ALL_TIME", label: "All Time" },
+];
+
+const relationshipScopeLabels: Record<
+  PersonRelationshipScope,
+  string
+> = {
+  ONE_YEAR: "1 Year",
+  TEN_YEARS: "10 Years",
+  ALL_TIME: "All Time",
+};
+
+const resonanceTierOptions: PersonHistoricalResonanceTier[] =
+  ["ICONIC", "ESTABLISHED", "RECOGNIZABLE", "NICHE"];
+
+const resonanceTierBadgeStyles: Record<
+  PersonHistoricalResonanceTier,
+  string
+> = {
+  ICONIC:
+    "border-amber-900 bg-amber-950/60 text-amber-300",
+  ESTABLISHED:
+    "border-teal-900 bg-teal-950/60 text-teal-300",
+  RECOGNIZABLE:
+    "border-sky-900 bg-sky-950/60 text-sky-300",
+  NICHE:
+    "border-neutral-700 bg-neutral-900 text-neutral-400",
+};
+
 function numeric(value: string | number | null | undefined) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -129,6 +167,45 @@ function formatLabel(value: string) {
 
 function formatConfidence(value: string | null) {
   return `${Math.round(numeric(value) * 100)}%`;
+}
+
+function formatDateOnly(value: string | null) {
+  if (!value) {
+    return "Not available";
+  }
+
+  const parsed = new Date(value);
+
+  return Number.isNaN(parsed.getTime())
+    ? "Not available"
+    : parsed.toISOString().slice(0, 10);
+}
+
+function formatAssociationYears(
+  link: PersonVehicleLink
+) {
+  const start = link.association_start_year;
+  const end = link.association_end_year;
+
+  if (start === null && end === null) {
+    return "Durable catalog association";
+  }
+
+  if (start !== null && end !== null) {
+    return `${start}–${end}`;
+  }
+
+  return start !== null
+    ? `Since ${start}`
+    : `Until ${end}`;
+}
+
+function resonanceLabelFromLink(
+  link: PersonVehicleLink
+) {
+  const label = link.resonance_evidence?.resonance_label;
+
+  return typeof label === "string" ? label : null;
 }
 
 export function PersonRadarDashboard() {
@@ -161,6 +238,14 @@ export function PersonRadarDashboard() {
 
   const [attentionArchetype, setAttentionArchetype] =
     useState<PersonAttentionArchetype | "ALL">("ALL");
+
+  const [relationshipScope, setRelationshipScope] =
+    useState<PersonRelationshipScope>("ALL_TIME");
+
+  const [resonanceTier, setResonanceTier] =
+    useState<PersonHistoricalResonanceTier | "ALL">(
+      "ALL"
+    );
 
   const [sort, setSort] =
     useState<PersonRadarSort>("traffic_score");
@@ -215,6 +300,8 @@ export function PersonRadarDashboard() {
             traffic_tier: trafficTier,
             transformation_tier: transformationTier,
             attention_archetype: attentionArchetype,
+            relationship_scope: relationshipScope,
+            historical_resonance_tier: resonanceTier,
             sort,
             q: query,
             limit: 100,
@@ -254,7 +341,9 @@ export function PersonRadarDashboard() {
     modelFilter,
     query,
     relation,
+    relationshipScope,
     reloadKey,
+    resonanceTier,
     role,
     sort,
     trafficTier,
@@ -416,6 +505,13 @@ export function PersonRadarDashboard() {
               vehicle-short views with a news coverage
               proxy. It is not a single-platform view
               count.
+            </p>
+
+            <p className="mt-2 max-w-xl text-xs text-amber-600/80">
+              Historical Resonance is based on curated
+              vehicle-person relationship knowledge. It
+              is not historical traffic or a 10-year
+              view count.
             </p>
           </div>
 
@@ -715,6 +811,39 @@ export function PersonRadarDashboard() {
             </div>
           ))}
         </div>
+
+        <div className="border-t border-neutral-800 bg-neutral-950 px-5 pt-3">
+          <p className="text-[11px] uppercase tracking-wider text-amber-600">
+            Historical Resonance ·{" "}
+            {relationshipScopeLabels[relationshipScope]}{" "}
+            relationship scope
+          </p>
+        </div>
+
+        <div className="grid gap-px bg-neutral-800 sm:grid-cols-2 lg:grid-cols-5">
+          {[
+            ["Iconic", summary.iconic ?? 0],
+            ["Established", summary.established ?? 0],
+            [
+              "Recognizable",
+              summary.recognizable ?? 0,
+            ],
+            ["Niche", summary.niche ?? 0],
+            ["Unscored", summary.unscored ?? 0],
+          ].map(([label, value]) => (
+            <div
+              key={label}
+              className="bg-neutral-950 px-5 py-3"
+            >
+              <p className="text-[11px] uppercase tracking-wider text-neutral-600">
+                {label}
+              </p>
+              <p className="mt-1 text-lg font-semibold text-amber-200">
+                {value}
+              </p>
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="rounded-xl border border-neutral-800 bg-neutral-950">
@@ -784,20 +913,83 @@ export function PersonRadarDashboard() {
             </button>
           </form>
 
+          <label className="space-y-1">
+            <span className="block text-[11px] uppercase tracking-wider text-neutral-500">
+              Current Traffic Window
+            </span>
+
+            <select
+              value={windowHours}
+              onChange={(event) =>
+                setWindowHours(
+                  Number(
+                    event.target.value
+                  ) as PersonRadarWindowHours
+                )
+              }
+              className="w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white"
+            >
+              {[24, 72, 168, 720].map((hours) => (
+                <option key={hours} value={hours}>
+                  Last {hours} hours
+                </option>
+              ))}
+            </select>
+
+            <span className="block text-[10px] text-neutral-600">
+              Recent news + traffic display
+            </span>
+          </label>
+
+          <label className="space-y-1">
+            <span className="block text-[11px] uppercase tracking-wider text-amber-600">
+              Relationship Scope
+            </span>
+
+            <select
+              value={relationshipScope}
+              onChange={(event) =>
+                setRelationshipScope(
+                  event.target
+                    .value as PersonRelationshipScope
+                )
+              }
+              className="w-full rounded-lg border border-amber-950 bg-neutral-900 px-3 py-2 text-sm text-white"
+            >
+              {relationshipScopeOptions.map(
+                (option) => (
+                  <option
+                    key={option.value}
+                    value={option.value}
+                  >
+                    {option.label}
+                  </option>
+                )
+              )}
+            </select>
+
+            <span className="block text-[10px] text-neutral-600">
+              Catalog-based relationship evidence
+            </span>
+          </label>
+
           <select
-            value={windowHours}
+            value={resonanceTier}
             onChange={(event) =>
-              setWindowHours(
-                Number(
-                  event.target.value
-                ) as PersonRadarWindowHours
+              setResonanceTier(
+                event.target.value as
+                  | PersonHistoricalResonanceTier
+                  | "ALL"
               )
             }
             className="rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white"
           >
-            {[24, 72, 168, 720].map((hours) => (
-              <option key={hours} value={hours}>
-                Last {hours} hours
+            <option value="ALL">
+              All resonance tiers
+            </option>
+            {resonanceTierOptions.map((value) => (
+              <option key={value} value={value}>
+                {formatLabel(value)}
               </option>
             ))}
           </select>
@@ -826,6 +1018,9 @@ export function PersonRadarDashboard() {
             </option>
             <option value="transformation_potential">
               Transformation potential
+            </option>
+            <option value="historical_resonance">
+              Historical resonance
             </option>
           </select>
 
@@ -1056,6 +1251,46 @@ export function PersonRadarDashboard() {
                         </span>
                       </p>
                     </div>
+
+                    <div className="rounded-lg border border-amber-950 bg-amber-950/20 px-3 py-2 text-right">
+                      <p className="text-[10px] uppercase tracking-wider text-amber-600">
+                        Historical Resonance
+                      </p>
+                      {person.historical_resonance_score !==
+                      null ? (
+                        <>
+                          <p className="mt-1 font-mono text-2xl font-bold text-amber-300">
+                            {Math.round(
+                              numeric(
+                                person.historical_resonance_score
+                              )
+                            )}
+                            <span className="ml-1 align-middle text-[10px] font-semibold text-amber-500">
+                              ·{" "}
+                              {person.historical_resonance_tier ??
+                                "SCORED"}
+                            </span>
+                          </p>
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-700">
+                            {
+                              relationshipScopeLabels[
+                                person
+                                  .relationship_scope
+                              ]
+                            }
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="mt-1 font-mono text-2xl font-bold text-neutral-600">
+                            —
+                          </p>
+                          <p className="text-[10px] uppercase tracking-wider text-neutral-600">
+                            No evidence in scope
+                          </p>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -1205,6 +1440,14 @@ export function PersonRadarDashboard() {
                   </button>
                 </div>
 
+                <p className="mt-3 text-[10px] text-neutral-600">
+                  Traffic observed since:{" "}
+                  {formatDateOnly(
+                    person.traffic_observed_since
+                  )}
+                  {" · Historical traffic claimed: No"}
+                </p>
+
                 {expandedId === person.id && (
                   <div className="mt-3 rounded-lg border border-neutral-800 bg-neutral-900/40 p-3">
                     {isDetailLoading ? (
@@ -1276,6 +1519,109 @@ export function PersonRadarDashboard() {
                                           )} association`
                                         : "evidence: catalog"}
                                   </p>
+
+                                  <div className="w-full rounded border border-amber-950/60 bg-amber-950/10 px-2 py-1.5">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-600">
+                                        Historical
+                                        Resonance
+                                      </span>
+
+                                      {link.historical_resonance_score !==
+                                        null &&
+                                      link.historical_resonance_tier ? (
+                                        <span
+                                          className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${
+                                            resonanceTierBadgeStyles[
+                                              link
+                                                .historical_resonance_tier
+                                            ]
+                                          }`}
+                                        >
+                                          {Math.round(
+                                            numeric(
+                                              link.historical_resonance_score
+                                            )
+                                          )}{" "}
+                                          ·{" "}
+                                          {
+                                            link.historical_resonance_tier
+                                          }
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] text-neutral-500">
+                                          Not scored yet
+                                        </span>
+                                      )}
+
+                                      {link.evidence_horizon && (
+                                        <span className="rounded border border-neutral-800 px-1 py-0.5 text-[10px] text-neutral-400">
+                                          Horizon:{" "}
+                                          {
+                                            relationshipScopeLabels[
+                                              link
+                                                .evidence_horizon
+                                            ]
+                                          }
+                                        </span>
+                                      )}
+
+                                      {link.iconic_association && (
+                                        <span className="rounded border border-amber-900 px-1 py-0.5 text-[10px] text-amber-400">
+                                          ICONIC
+                                          ASSOCIATION
+                                        </span>
+                                      )}
+
+                                      {link.legacy_association && (
+                                        <span className="rounded border border-purple-900 px-1 py-0.5 text-[10px] text-purple-400">
+                                          LEGACY
+                                        </span>
+                                      )}
+
+                                      {link.recognition_weight !==
+                                        null && (
+                                        <span className="rounded border border-neutral-800 px-1 py-0.5 text-[10px] text-neutral-400">
+                                          Recognition{" "}
+                                          {formatConfidence(
+                                            link.recognition_weight
+                                          )}
+                                        </span>
+                                      )}
+
+                                      <span className="rounded border border-neutral-800 px-1 py-0.5 text-[10px] text-neutral-500">
+                                        {formatAssociationYears(
+                                          link
+                                        )}
+                                      </span>
+
+                                      {link.resonance_locked && (
+                                        <span className="rounded border border-red-900 px-1 py-0.5 text-[10px] text-red-400">
+                                          RESONANCE
+                                          LOCKED
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {resonanceLabelFromLink(
+                                      link
+                                    ) && (
+                                      <p className="mt-1 text-[11px] text-neutral-400">
+                                        {resonanceLabelFromLink(
+                                          link
+                                        )}
+                                      </p>
+                                    )}
+
+                                    {link.resonance_version && (
+                                      <p className="mt-1 text-[10px] text-neutral-600">
+                                        Resolver:{" "}
+                                        {
+                                          link.resonance_version
+                                        }
+                                      </p>
+                                    )}
+                                  </div>
                                 </div>
                               )
                             )}
@@ -1352,6 +1698,9 @@ export function PersonRadarDashboard() {
           Person Traffic Score combines actual
           vehicle-short views with a news coverage proxy.
           It is not a single-platform view count.
+          Historical Resonance is catalog-based
+          relationship knowledge — it is not historical
+          traffic or a 10-year view count.
         </div>
       </section>
     </div>

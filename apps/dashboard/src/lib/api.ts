@@ -1275,13 +1275,59 @@ export type PersonMentionMatchMethod =
   | "SNIPPET_ALIAS"
   | "QUERY_CONTEXT";
 
+export type PersonRelationshipScope =
+  | "ONE_YEAR"
+  | "TEN_YEARS"
+  | "ALL_TIME";
+
+export type PersonHistoricalResonanceTier =
+  | "ICONIC"
+  | "ESTABLISHED"
+  | "RECOGNIZABLE"
+  | "NICHE";
+
+export type PersonHistoricalResonanceScores = Partial<
+  Record<PersonRelationshipScope, number>
+>;
+
+export type PersonHistoricalResonanceTiers = Partial<
+  Record<
+    PersonRelationshipScope,
+    PersonHistoricalResonanceTier
+  >
+>;
+
+export type PersonResonanceScopeEvidence = {
+  score?: number | null;
+  tier?: PersonHistoricalResonanceTier | null;
+  eligible_link_count?: number;
+  strong_link_count?: number;
+  breadth_bonus?: number;
+  primary_association?: Record<string, unknown> | null;
+  score_breakdown?: Record<string, number> | null;
+};
+
+export type PersonResonanceEvidence = {
+  resonance_version?: string;
+  resonance_catalog_version?: string;
+  primary_resonance_link_id?: string | number | null;
+  scopes?: Partial<
+    Record<
+      PersonRelationshipScope,
+      PersonResonanceScopeEvidence
+    >
+  >;
+  [key: string]: unknown;
+};
+
 export type PersonRadarSort =
   | "traffic_score"
   | "vehicle_views"
   | "news_coverage"
   | "recency"
   | "publisher_count"
-  | "transformation_potential";
+  | "transformation_potential"
+  | "historical_resonance";
 
 export type PersonRadarWindowHours =
   | 24
@@ -1339,6 +1385,20 @@ export type PersonTrafficRecord = {
   representative_source: string | null;
   representative_domain: string | null;
 
+  relationship_scope: PersonRelationshipScope;
+  historical_resonance_score: string | null;
+  historical_resonance_tier:
+    | PersonHistoricalResonanceTier
+    | null;
+  historical_resonance_scores: PersonHistoricalResonanceScores;
+  historical_resonance_tiers: PersonHistoricalResonanceTiers;
+  primary_resonance_link_id: string | null;
+  resonance_version: string | null;
+  resonance_evidence: PersonResonanceEvidence;
+
+  traffic_observed_since: string | null;
+  historical_traffic_claimed: boolean;
+
   first_seen_at: string;
   last_seen_at: string;
 
@@ -1357,6 +1417,21 @@ export type PersonVehicleLink = {
   link_method: PersonLinkMethod;
   link_evidence: Record<string, unknown>;
   locked: boolean;
+
+  evidence_horizon: PersonRelationshipScope | null;
+  iconic_association: boolean;
+  legacy_association: boolean;
+  recognition_weight: string | null;
+  association_start_year: number | null;
+  association_end_year: number | null;
+  historical_resonance_score: string | null;
+  historical_resonance_tier:
+    | PersonHistoricalResonanceTier
+    | null;
+  resonance_evidence: Record<string, unknown>;
+  resonance_version: string | null;
+  resonance_locked: boolean;
+
   created_at: string;
   updated_at: string;
 };
@@ -1420,6 +1495,13 @@ export type PersonRadarSummary = {
   active_brands?: number;
   active_models?: number;
   news_publishers?: number;
+
+  iconic?: number;
+  established?: number;
+  recognizable?: number;
+  niche?: number;
+  unscored?: number;
+  average_historical_resonance?: string | null;
 };
 
 export type PersonRadarFilters = {
@@ -1435,6 +1517,10 @@ export type PersonRadarFilters = {
     | "ALL";
   attention_archetype:
     | PersonAttentionArchetype
+    | "ALL";
+  relationship_scope: PersonRelationshipScope;
+  historical_resonance_tier:
+    | PersonHistoricalResonanceTier
     | "ALL";
   sort: PersonRadarSort;
   q: string;
@@ -1463,6 +1549,10 @@ export type FetchPersonRadarInput = {
     | "ALL";
   attention_archetype?:
     | PersonAttentionArchetype
+    | "ALL";
+  relationship_scope?: PersonRelationshipScope;
+  historical_resonance_tier?:
+    | PersonHistoricalResonanceTier
     | "ALL";
   sort?: PersonRadarSort;
   q?: string;
@@ -1541,9 +1631,29 @@ export type PersonRadarRun = {
     brand_association_person_count?: number;
     model_association_person_count?: number;
 
+    resonance_scored_count?: number;
+    resonance_unscored_count?: number;
+
+    one_year_iconic_count?: number;
+    one_year_established_count?: number;
+    one_year_recognizable_count?: number;
+    one_year_niche_count?: number;
+
+    ten_year_iconic_count?: number;
+    ten_year_established_count?: number;
+    ten_year_recognizable_count?: number;
+    ten_year_niche_count?: number;
+
+    all_time_iconic_count?: number;
+    all_time_established_count?: number;
+    all_time_recognizable_count?: number;
+    all_time_niche_count?: number;
+
     provider?: string;
     resolver_version?: string;
     catalog_version?: string;
+    resonance_version?: string;
+    resonance_catalog_version?: string;
     vehicle_window_days?: number;
     max_age_hours?: number;
     max_queries_per_person?: number;
@@ -1649,6 +1759,20 @@ export async function fetchPersonRadar(
     query.set(
       "attention_archetype",
       input.attention_archetype
+    );
+  }
+
+  if (input.relationship_scope) {
+    query.set(
+      "relationship_scope",
+      input.relationship_scope
+    );
+  }
+
+  if (input.historical_resonance_tier) {
+    query.set(
+      "historical_resonance_tier",
+      input.historical_resonance_tier
     );
   }
 

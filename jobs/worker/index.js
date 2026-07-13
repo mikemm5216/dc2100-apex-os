@@ -293,7 +293,12 @@ async function pollPersonRadarQueue() {
         medium_transformation_count:
           result.mediumTransformationCount,
         low_transformation_count:
-          result.lowTransformationCount
+          result.lowTransformationCount,
+        resonance_scored_count:
+          result.resonanceScoredCount,
+        resonance_unscored_count:
+          result.resonanceUnscoredCount,
+        ...(result.resonanceCounters || {})
       }
     );
 
