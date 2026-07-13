@@ -31,6 +31,14 @@ const {
   listFusionRuns
 } = require("../../../lib/fusion/api");
 
+const {
+  createAutoFlowRun,
+  getAutoFlowRun,
+  listAutoFlowRuns,
+  cancelAutoFlowRun,
+  resumeAutoFlowRun
+} = require("../../../lib/autoflow/api");
+
 const port = process.env.PORT || 3000;
 
 const VALID_STATUSES = new Set([
@@ -77,7 +85,7 @@ function sendJson(res, statusCode, data) {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods":
       "GET, POST, PATCH, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type"
+    "Access-Control-Allow-Headers": "Content-Type, Idempotency-Key"
   });
 
   res.end(JSON.stringify(data));
@@ -115,6 +123,10 @@ async function readJsonBody(req) {
 
     req.on("error", reject);
   });
+}
+
+function validateAutoFlowRunId(runId) {
+  return /^[1-9][0-9]*$/.test(runId);
 }
 
 function validatePriority(priority) {
@@ -415,7 +427,7 @@ const server = http.createServer(async (req, res) => {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods":
         "GET, POST, PATCH, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type"
+      "Access-Control-Allow-Headers": "Content-Type, Idempotency-Key"
     });
 
     return res.end();
@@ -1439,6 +1451,126 @@ const server = http.createServer(async (req, res) => {
         result.statusCode,
         result.payload
       );
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  // =======================================================
+  // AUTOFLOW (Task 3.3G.3)
+  //
+  // Create only queues the run and seeds its six fixed steps
+  // -- advancing a run (calling into the four domains) is
+  // worker territory (3.3G.4), never triggered from a request.
+  // =======================================================
+
+  if (
+    req.method === "POST" &&
+    pathname === "/api/autoflow/runs"
+  ) {
+    let body;
+
+    try {
+      body = await readJsonBody(req);
+    } catch (error) {
+      return sendJson(res, 400, {
+        error: error.message,
+        message: "Request body must contain valid JSON."
+      });
+    }
+
+    try {
+      const result = await createAutoFlowRun(pool, body, {
+        requestedBy: "api",
+        idempotencyKey: req.headers["idempotency-key"]
+      });
+
+      return sendJson(res, result.statusCode, result.payload);
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  if (
+    req.method === "GET" &&
+    pathname === "/api/autoflow/runs"
+  ) {
+    try {
+      const result = await listAutoFlowRuns(
+        pool,
+        requestUrl.searchParams
+      );
+
+      return sendJson(res, result.statusCode, result.payload);
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  const autoflowCancelMatch = pathname.match(
+    /^\/api\/autoflow\/runs\/([^/]+)\/cancel$/
+  );
+
+  if (req.method === "POST" && autoflowCancelMatch) {
+    const runId = autoflowCancelMatch[1];
+
+    if (!validateAutoFlowRunId(runId)) {
+      return sendJson(res, 400, {
+        error: "VALIDATION_ERROR",
+        message: "runId must be a positive integer."
+      });
+    }
+
+    try {
+      const result = await cancelAutoFlowRun(pool, runId);
+
+      return sendJson(res, result.statusCode, result.payload);
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  const autoflowResumeMatch = pathname.match(
+    /^\/api\/autoflow\/runs\/([^/]+)\/resume$/
+  );
+
+  if (req.method === "POST" && autoflowResumeMatch) {
+    const runId = autoflowResumeMatch[1];
+
+    if (!validateAutoFlowRunId(runId)) {
+      return sendJson(res, 400, {
+        error: "VALIDATION_ERROR",
+        message: "runId must be a positive integer."
+      });
+    }
+
+    try {
+      const result = await resumeAutoFlowRun(pool, runId);
+
+      return sendJson(res, result.statusCode, result.payload);
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  const autoflowRunMatch = pathname.match(
+    /^\/api\/autoflow\/runs\/([^/]+)$/
+  );
+
+  if (req.method === "GET" && autoflowRunMatch) {
+    const runId = autoflowRunMatch[1];
+
+    if (!validateAutoFlowRunId(runId)) {
+      return sendJson(res, 400, {
+        error: "VALIDATION_ERROR",
+        message: "runId must be a positive integer."
+      });
+    }
+
+    try {
+      const result = await getAutoFlowRun(pool, runId);
+
+      return sendJson(res, result.statusCode, result.payload);
     } catch (error) {
       return handleDatabaseError(res, error);
     }
