@@ -2,10 +2,10 @@ name: Task 3.3F CI
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - feat/task-3-3f-signal-fusion
   pull_request:
+    branches:
+      - main
+  push:
     branches:
       - main
 
