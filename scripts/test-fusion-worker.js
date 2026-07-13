@@ -17,8 +17,21 @@ function createMockDb({ run, vehicles, newsByCountry, linksByBrand }) {
   const state = {
     run: { ...run, status: "QUEUED" },
     candidates: new Map(),
-    nextCandidateId: 1
+    nextCandidateId: 1,
+
+    // Proves the transaction wrapper and the claim/run
+    // lifecycle actually ran, without weakening the
+    // production BEGIN / SELECT ... FOR UPDATE SKIP LOCKED
+    // / UPDATE / COMMIT / ROLLBACK sequence in
+    // lib/fusion/engine.js.
+    transactionLog: [],
+    statusHistory: ["QUEUED"]
   };
+
+  function setRunStatus(nextStatus) {
+    state.run.status = nextStatus;
+    state.statusHistory.push(nextStatus);
+  }
 
   function candidateKey(values) {
     // run_id, vehicle_id, country_news_signal_id, person_id
@@ -31,6 +44,22 @@ function createMockDb({ run, vehicles, newsByCountry, linksByBrand }) {
   }
 
   async function query(sql, values = []) {
+    // Transaction control statements are single-word
+    // client.query() calls issued by claimNextFusionRun's
+    // BEGIN / COMMIT / ROLLBACK — they carry no rows and
+    // must never fall through to the "unexpected query"
+    // guard below.
+    const normalizedSql = String(sql).trim().toUpperCase();
+
+    if (
+      normalizedSql === "BEGIN" ||
+      normalizedSql === "COMMIT" ||
+      normalizedSql === "ROLLBACK"
+    ) {
+      state.transactionLog.push(normalizedSql);
+      return { rows: [], rowCount: 0 };
+    }
+
     if (
       sql.includes("FROM fusion_runs") &&
       sql.includes("status = 'QUEUED'")
@@ -53,7 +82,7 @@ function createMockDb({ run, vehicles, newsByCountry, linksByBrand }) {
       sql.includes("UPDATE fusion_runs") &&
       sql.includes("status = 'RUNNING'")
     ) {
-      state.run.status = "RUNNING";
+      setRunStatus("RUNNING");
       return { rows: [], rowCount: 1 };
     }
 
@@ -100,7 +129,7 @@ function createMockDb({ run, vehicles, newsByCountry, linksByBrand }) {
       sql.includes("UPDATE fusion_runs") &&
       sql.includes("status = $1")
     ) {
-      state.run.status = values[0];
+      setRunStatus(values[0]);
       state.run.finalSummary = JSON.parse(values[7]);
       return { rows: [], rowCount: 1 };
     }
@@ -241,6 +270,28 @@ async function run() {
   });
 
   assert.ok(result, "A queued run must be claimed.");
+
+  // -------------------------------------------------------
+  // Claim + transaction lifecycle: proves (1) the run was
+  // claimed from QUEUED, (2) status transitioned to
+  // RUNNING before the finalize step, (3) the run completed
+  // through the normal path, and (4) the production
+  // BEGIN / SELECT ... FOR UPDATE SKIP LOCKED / UPDATE /
+  // COMMIT transaction sequence executed without triggering
+  // the mock's "unexpected query" guard.
+  // -------------------------------------------------------
+
+  assert.deepEqual(mockDb.state.statusHistory, [
+    "QUEUED",
+    "RUNNING",
+    "COMPLETED"
+  ]);
+
+  assert.deepEqual(mockDb.state.transactionLog, [
+    "BEGIN",
+    "COMMIT"
+  ]);
+
   assert.equal(result.status, "COMPLETED");
   assert.equal(result.vehicleCount, 2);
   assert.equal(result.completedVehicleCount, 1);
