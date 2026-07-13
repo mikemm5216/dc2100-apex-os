@@ -37,6 +37,12 @@ jobs:
       - name: Install root dependencies
         run: npm ci
 
+      - name: Vehicle entity resolver tests
+        run: npm run test:entity-resolver
+
+      - name: Scanner core tests
+        run: npm run test:scanner-core
+
       - name: Fusion core tests
         run: npm run test:fusion-core
 
