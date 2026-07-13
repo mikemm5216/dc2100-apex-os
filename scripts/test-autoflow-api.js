@@ -1153,6 +1153,7 @@ async function run() {
             res.on("end", () => {
               resolve({
                 statusCode: res.statusCode,
+                headers: res.headers,
                 body: raw ? JSON.parse(raw) : null
               });
             });
@@ -1180,6 +1181,18 @@ async function run() {
 
     try {
       await waitForServerReady();
+
+      const preflight = await httpRequest("OPTIONS", "/api/autoflow/runs", {
+        headers: {
+          "Access-Control-Request-Method": "POST",
+          "Access-Control-Request-Headers": "content-type,idempotency-key"
+        }
+      });
+      assert.equal(preflight.statusCode, 204);
+      const allowedHeaders = preflight.headers["access-control-allow-headers"]
+        .split(",")
+        .map(header => header.trim().toLowerCase());
+      assert.ok(allowedHeaders.includes("idempotency-key"));
 
       const created = await httpRequest("POST", "/api/autoflow/runs", {
         body: { note: "route test" },

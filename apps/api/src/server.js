@@ -85,7 +85,7 @@ function sendJson(res, statusCode, data) {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods":
       "GET, POST, PATCH, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type"
+    "Access-Control-Allow-Headers": "Content-Type, Idempotency-Key"
   });
 
   res.end(JSON.stringify(data));
@@ -427,7 +427,7 @@ const server = http.createServer(async (req, res) => {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods":
         "GET, POST, PATCH, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type"
+      "Access-Control-Allow-Headers": "Content-Type, Idempotency-Key"
     });
 
     return res.end();
