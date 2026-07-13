@@ -392,6 +392,7 @@ export function PersonRadarDashboard() {
       return;
     }
 
+    const detailId = expandedId;
     const controller = new AbortController();
 
     async function loadDetail() {
@@ -399,7 +400,7 @@ export function PersonRadarDashboard() {
 
       try {
         const payload = await fetchPersonRadarDetail(
-          expandedId,
+          detailId,
           controller.signal
         );
 

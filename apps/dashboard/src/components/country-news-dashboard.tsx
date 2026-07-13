@@ -275,6 +275,7 @@ export function CountryNewsDashboard() {
       return;
     }
 
+    const detailId = expandedId;
     const controller = new AbortController();
 
     async function loadDetail() {
@@ -282,7 +283,7 @@ export function CountryNewsDashboard() {
 
       try {
         const payload = await fetchCountryNewsDetail(
-          expandedId,
+          detailId,
           controller.signal
         );
 
