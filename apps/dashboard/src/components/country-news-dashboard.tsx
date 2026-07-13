@@ -277,11 +277,17 @@ export function CountryNewsDashboard() {
 
     const controller = new AbortController();
 
-    setIsDetailLoading(true);
+    async function loadDetail() {
+      setIsDetailLoading(true);
 
-    fetchCountryNewsDetail(expandedId, controller.signal)
-      .then((payload) => setDetail(payload))
-      .catch((detailError) => {
+      try {
+        const payload = await fetchCountryNewsDetail(
+          expandedId,
+          controller.signal
+        );
+
+        setDetail(payload);
+      } catch (detailError) {
         if (
           detailError instanceof DOMException &&
           detailError.name === "AbortError"
@@ -294,12 +300,14 @@ export function CountryNewsDashboard() {
             ? detailError.message
             : "Failed to load news evidence."
         );
-      })
-      .finally(() => {
+      } finally {
         if (!controller.signal.aborted) {
           setIsDetailLoading(false);
         }
-      });
+      }
+    }
+
+    loadDetail();
 
     return () => controller.abort();
   }, [expandedId]);

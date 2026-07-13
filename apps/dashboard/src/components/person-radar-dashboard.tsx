@@ -394,11 +394,17 @@ export function PersonRadarDashboard() {
 
     const controller = new AbortController();
 
-    setIsDetailLoading(true);
+    async function loadDetail() {
+      setIsDetailLoading(true);
 
-    fetchPersonRadarDetail(expandedId, controller.signal)
-      .then((payload) => setDetail(payload))
-      .catch((detailError) => {
+      try {
+        const payload = await fetchPersonRadarDetail(
+          expandedId,
+          controller.signal
+        );
+
+        setDetail(payload);
+      } catch (detailError) {
         if (
           detailError instanceof DOMException &&
           detailError.name === "AbortError"
@@ -411,12 +417,14 @@ export function PersonRadarDashboard() {
             ? detailError.message
             : "Failed to load person evidence."
         );
-      })
-      .finally(() => {
+      } finally {
         if (!controller.signal.aborted) {
           setIsDetailLoading(false);
         }
-      });
+      }
+    }
+
+    loadDetail();
 
     return () => controller.abort();
   }, [expandedId]);
