@@ -141,6 +141,24 @@ function createMockDb({ run, vehicles, newsByCountry, linksByBrand }) {
       return { rows: [], rowCount: 1 };
     }
 
+    // failFusionRun(): the no-qualified-traffic and
+    // uncaught-error paths persist FAILED directly (literal
+    // status = 'FAILED'), separate from finalizeRun()'s
+    // parameterized status = $1 above.
+    if (
+      sql.includes("UPDATE fusion_runs") &&
+      sql.includes("status = 'FAILED'") &&
+      sql.includes("error_message = $1")
+    ) {
+      setRunStatus("FAILED");
+      state.run.errorMessage = values[0];
+
+      return {
+        rows: [],
+        rowCount: 1
+      };
+    }
+
     throw new Error(
       `Unexpected fusion query: ${sql.slice(0, 120)}`
     );
@@ -442,6 +460,20 @@ async function run() {
     emptyResult.errorCode,
     NO_QUALIFIED_VEHICLE_TRAFFIC_ERROR
   );
+
+  // failFusionRun() must actually persist FAILED with the
+  // error code as error_message — not merely return a
+  // FAILED status in memory.
+  assert.equal(emptyDb.state.run.status, "FAILED");
+  assert.equal(
+    emptyDb.state.run.errorMessage,
+    NO_QUALIFIED_VEHICLE_TRAFFIC_ERROR
+  );
+  assert.deepEqual(emptyDb.state.statusHistory, [
+    "QUEUED",
+    "RUNNING",
+    "FAILED"
+  ]);
 
   console.log("TASK 3.3F FUSION WORKER TESTS PASSED");
 }
