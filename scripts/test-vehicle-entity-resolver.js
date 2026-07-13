@@ -1,10 +1,15 @@
 const assert = require("node:assert/strict");
 
+const fs = require("node:fs");
+const path = require("node:path");
+
 const {
   BANNED_ALIASES,
   BRAND_CATALOG,
+  GENERIC_UNSAFE_VEHICLE_CODES,
   MODEL_CATALOG,
-  SERIES_CATALOG
+  SERIES_CATALOG,
+  compactVehicleCode
 } = require("../lib/scanner/vehicle-catalog");
 
 const {
@@ -14,6 +19,10 @@ const {
   normalizeEntityText,
   resolveVehicleEntity
 } = require("../lib/scanner/entity-resolver");
+
+const {
+  lookupResolvedVehicleId
+} = require("../lib/scanner/engine");
 
 function resolveTitle(title, extra = {}) {
   return resolveVehicleEntity({
@@ -590,10 +599,325 @@ assert.ok(
   `Entity evidence must stay compact (got ${evidenceSize} bytes).`
 );
 
+// ---------------------------------------------------------
+// Catalog / DB bridge — Task 3.3F follow-up
+//
+// lookupResolvedVehicleId() must resolve a real vehicle to
+// its canonical compact(brand + model) code, and must never
+// fall through to a fictional MVP seed row.
+// ---------------------------------------------------------
+
+// A. Six collision protections: the canonical BRAND+MODEL
+// code must win even when the fictional short code is also
+// present in the vehicle map.
+const collisionCases = [
+  {
+    label: "Ford Mustang",
+    entity: { brand: "Ford", series: "Mustang", model: "Mustang" },
+    fictionalCode: "MUSTANG",
+    canonicalCode: "FORDMUSTANG"
+  },
+  {
+    label: "Xiaomi SU7",
+    entity: { brand: "Xiaomi", series: "SU7", model: "SU7" },
+    fictionalCode: "SU7",
+    canonicalCode: "XIAOMISU7"
+  },
+  {
+    label: "Audi TT RS",
+    entity: { brand: "Audi", series: "TT", model: "TT RS" },
+    fictionalCode: "TTRS",
+    canonicalCode: "AUDITTRS"
+  },
+  {
+    label: "Toyota GR Supra",
+    entity: { brand: "Toyota", series: "GR", model: "GR Supra" },
+    fictionalCode: "SUPRA",
+    canonicalCode: "TOYOTAGRSUPRA"
+  },
+  {
+    label: "Porsche 911 GT3 RS",
+    entity: { brand: "Porsche", series: "911", model: "911 GT3 RS" },
+    fictionalCode: "GT3RS",
+    canonicalCode: "PORSCHE911GT3RS"
+  },
+  {
+    label: "Lotus Exige",
+    entity: { brand: "Lotus", series: "Exige", model: "Exige" },
+    fictionalCode: "EXIGE",
+    canonicalCode: "LOTUSEXIGE"
+  }
+];
+
+const FICTIONAL_VEHICLE_ID = 999;
+const REAL_VEHICLE_ID = 1;
+
+for (const testCase of collisionCases) {
+  assert.equal(
+    compactVehicleCode(
+      `${testCase.entity.brand}${testCase.entity.model}`
+    ),
+    testCase.canonicalCode,
+    `${testCase.label} must derive canonical code ${testCase.canonicalCode}.`
+  );
+
+  const vehicleMap = new Map([
+    [testCase.fictionalCode, FICTIONAL_VEHICLE_ID],
+    [testCase.canonicalCode, REAL_VEHICLE_ID]
+  ]);
+
+  const resolvedId = lookupResolvedVehicleId(
+    vehicleMap,
+    testCase.entity
+  );
+
+  assert.equal(
+    resolvedId,
+    REAL_VEHICLE_ID,
+    `${testCase.label} must resolve to the canonical row, not the fictional ${testCase.fictionalCode} row.`
+  );
+
+  assert.notEqual(
+    resolvedId,
+    FICTIONAL_VEHICLE_ID,
+    `${testCase.label} must never resolve to the fictional vehicle id.`
+  );
+}
+
+// B. Missing canonical row: when only the fictional short
+// code exists in the vehicle map (no BRAND+MODEL row yet),
+// the result must be null, never the fictional id.
+for (const testCase of collisionCases) {
+  const vehicleMapWithOnlyFictionalRow = new Map([
+    [testCase.fictionalCode, FICTIONAL_VEHICLE_ID]
+  ]);
+
+  const resolvedId = lookupResolvedVehicleId(
+    vehicleMapWithOnlyFictionalRow,
+    testCase.entity
+  );
+
+  assert.equal(
+    resolvedId,
+    null,
+    `${testCase.label} must resolve to null, not fall back to the fictional ${testCase.fictionalCode} row, when no canonical row exists.`
+  );
+}
+
+// C. New resolution coverage: real vehicles resolve through
+// the full resolver -> lookup pipeline once their canonical
+// row exists.
+const newCoverageCases = [
+  {
+    title: "Chevrolet Corvette dyno pull",
+    brand: "Chevrolet",
+    model: "Corvette",
+    code: "CHEVROLETCORVETTE"
+  },
+  {
+    title: "Toyota GR86 track day",
+    brand: "Toyota",
+    model: "GR86",
+    code: "TOYOTAGR86"
+  },
+  {
+    title: "Toyota GR GT top speed run",
+    brand: "Toyota",
+    model: "GR GT",
+    code: "TOYOTAGRGT"
+  },
+  {
+    title: "Mitsubishi Triton pickup off-road test",
+    brand: "Mitsubishi",
+    model: "Triton",
+    code: "MITSUBISHITRITON"
+  },
+  {
+    title: "Triton pickup conquers the trail",
+    brand: "Mitsubishi",
+    model: "Triton",
+    code: "MITSUBISHITRITON"
+  },
+  {
+    title: "Hyundai Ioniq 6 N drift session",
+    brand: "Hyundai",
+    model: "Ioniq 6 N",
+    code: "HYUNDAIIONIQ6N"
+  },
+  {
+    title: "Ioniq 6 N drift session",
+    brand: "Hyundai",
+    model: "Ioniq 6 N",
+    code: "HYUNDAIIONIQ6N"
+  }
+];
+
+for (const testCase of newCoverageCases) {
+  const entity = resolveTitle(testCase.title);
+
+  assert.equal(
+    entity.status,
+    ENTITY_STATUSES.RESOLVED,
+    `"${testCase.title}" must resolve.`
+  );
+  assert.equal(entity.brand, testCase.brand, testCase.title);
+  assert.equal(entity.model, testCase.model, testCase.title);
+
+  assert.equal(
+    compactVehicleCode(`${entity.brand}${entity.model}`),
+    testCase.code,
+    `"${testCase.title}" must derive canonical code ${testCase.code}.`
+  );
+
+  const resolvedId = lookupResolvedVehicleId(
+    new Map([[testCase.code, 42]]),
+    entity
+  );
+
+  assert.equal(
+    resolvedId,
+    42,
+    `"${testCase.title}" must resolve through the canonical row.`
+  );
+}
+
+// Legacy fallback path (model without brand): generic unsafe
+// codes must never be used to resolve a vehicle, even when
+// present in the vehicle map.
+assert.equal(
+  lookupResolvedVehicleId(
+    new Map([["RS", FICTIONAL_VEHICLE_ID]]),
+    { model: "RS", series: null }
+  ),
+  null,
+  "A bare generic code like RS must never resolve a vehicle."
+);
+
+assert.equal(
+  lookupResolvedVehicleId(
+    new Map([["86", FICTIONAL_VEHICLE_ID]]),
+    { model: "GR86", series: "GR" }
+  ),
+  null,
+  "The dangerous series-stripped fallback code 86 must never resolve a vehicle."
+);
+
+for (const unsafeCode of GENERIC_UNSAFE_VEHICLE_CODES) {
+  assert.equal(
+    lookupResolvedVehicleId(
+      new Map([[unsafeCode, FICTIONAL_VEHICLE_ID]]),
+      { model: unsafeCode, series: null }
+    ),
+    null,
+    `Generic unsafe code "${unsafeCode}" must never resolve a vehicle via the legacy fallback path.`
+  );
+}
+
+// D. Catalog / DB seed parity: migration 011 must declare
+// exactly one real row per current MODEL_CATALOG entry. This
+// fails on purpose if a future MODEL_CATALOG addition ships
+// without a matching migration row.
+const migration011Sql = fs.readFileSync(
+  path.join(
+    __dirname,
+    "..",
+    "db",
+    "migrations",
+    "011_real_vehicle_catalog.sql"
+  ),
+  "utf8"
+).replace(/\r\n/g, "\n");
+
+assert.ok(
+  !/UPDATE\s+vehicles|DELETE\s+FROM\s+vehicles/i.test(
+    migration011Sql
+  ),
+  "Migration 011 must be purely additive: no UPDATE or DELETE against vehicles."
+);
+
+assert.ok(
+  /ON CONFLICT\s*\(\s*code\s*\)\s*DO NOTHING/i.test(
+    migration011Sql
+  ),
+  "Migration 011 must be idempotent via ON CONFLICT (code) DO NOTHING."
+);
+
+const rowPattern = /'([A-Z0-9]+)',\s*'[^']*',\s*'[^']*',/g;
+const migrationCodes = new Set();
+let rowMatch;
+
+while ((rowMatch = rowPattern.exec(migration011Sql)) !== null) {
+  migrationCodes.add(rowMatch[1]);
+}
+
+assert.equal(
+  MODEL_CATALOG.length,
+  40,
+  "MODEL_CATALOG must contain exactly 40 entries (38 existing + Triton + Ioniq 6 N)."
+);
+
+for (const entry of MODEL_CATALOG) {
+  const expectedCode = compactVehicleCode(
+    `${entry.brand}${entry.model}`
+  );
+
+  assert.ok(
+    migrationCodes.has(expectedCode),
+    `Migration 011 must seed a real vehicles row for ${entry.brand} ${entry.model} (code ${expectedCode}).`
+  );
+}
+
+assert.equal(
+  migrationCodes.size,
+  MODEL_CATALOG.length,
+  "Migration 011 must seed exactly one real row per MODEL_CATALOG entry, no more, no fewer."
+);
+
+// E. Regression protection: the eight fictional MVP rows and
+// their codes must remain exactly as seeded by migration 002.
+const FICTIONAL_SEED_ROWS = [
+  ["GTO", "Black Crow GTO"],
+  ["MUSTANG", "Okinawa Mustang"],
+  ["TTRS", "Dragon TT RS"],
+  ["IMPREZA", "Rally Impreza"],
+  ["SUPRA", "Golden Demon Supra"],
+  ["SU7", "Dome White EV"],
+  ["GT3RS", "German Aero Monster"],
+  ["EXIGE", "British Lightweight Assassin"]
+];
+
+const seedDataSql = fs.readFileSync(
+  path.join(
+    __dirname,
+    "..",
+    "db",
+    "migrations",
+    "002_seed_data.sql"
+  ),
+  "utf8"
+).replace(/\r\n/g, "\n");
+
+for (const [fictionalCode, fictionalName] of FICTIONAL_SEED_ROWS) {
+  assert.ok(
+    seedDataSql.includes(
+      `'${fictionalCode}',\n  '${fictionalName}',`
+    ),
+    `Fictional seed row ${fictionalCode} (${fictionalName}) must remain unchanged in 002_seed_data.sql.`
+  );
+
+  assert.ok(
+    !migrationCodes.has(fictionalCode),
+    `Migration 011 must not define a row using the bare fictional code ${fictionalCode}.`
+  );
+}
+
 testEntityLockUpsert()
   .then(() => {
     console.log(
       "TASK 3.3C VEHICLE ENTITY RESOLVER TESTS PASSED"
+    );
+    console.log(
+      "TASK 3.3F CATALOG/DB BRIDGE TESTS PASSED"
     );
   })
   .catch(error => {
