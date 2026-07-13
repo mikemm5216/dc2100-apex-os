@@ -55,6 +55,10 @@ function createMockDb() {
   // Postgres semantics -- a rolled-back tick must leave zero
   // trace, exactly like the real production 012/013 schema does.
   let snapshot = null;
+  // Named SAVEPOINT snapshots, mirroring real PostgreSQL SAVEPOINT /
+  // RELEASE SAVEPOINT / ROLLBACK TO SAVEPOINT semantics, so
+  // invokeCreateRun's recovery from a 23505 can be exercised here too.
+  const namedSnapshots = new Map();
 
   function stepsForRun(runId) {
     return [...state.steps.values()]
@@ -93,7 +97,36 @@ function createMockDb() {
         state.nextEventId = snapshot.nextEventId;
         snapshot = null;
       }
+      namedSnapshots.clear();
       state.transactionLog.push(upper);
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (/^SAVEPOINT\s+/i.test(trimmed)) {
+      const name = trimmed.replace(/^SAVEPOINT\s+/i, "").trim();
+      namedSnapshots.set(name, cloneState(state));
+      state.transactionLog.push(`SAVEPOINT ${name}`);
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (/^RELEASE SAVEPOINT\s+/i.test(trimmed)) {
+      const name = trimmed.replace(/^RELEASE SAVEPOINT\s+/i, "").trim();
+      namedSnapshots.delete(name);
+      state.transactionLog.push(`RELEASE SAVEPOINT ${name}`);
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (/^ROLLBACK TO SAVEPOINT\s+/i.test(trimmed)) {
+      const name = trimmed.replace(/^ROLLBACK TO SAVEPOINT\s+/i, "").trim();
+      const named = namedSnapshots.get(name);
+      if (named) {
+        state.runs = named.runs;
+        state.steps = named.steps;
+        state.events = named.events;
+        state.nextStepId = named.nextStepId;
+        state.nextEventId = named.nextEventId;
+      }
+      state.transactionLog.push(`ROLLBACK TO SAVEPOINT ${name}`);
       return { rows: [], rowCount: 0 };
     }
 
@@ -607,7 +640,7 @@ async function run() {
     ]);
   });
 
-  await test("PENDING step with non-NULL domain_run_id -> AUTOFLOW_DATA_INVARIANT_VIOLATION", async () => {
+  await test("PENDING step with non-NULL domain_run_id -> failStepAndRun (step FAILED, virtual child FAILED, run FAILED, summary updated)", async () => {
     const mockDb = createMockDb();
     const pool = wrapAsPool(mockDb);
     const client = await pool.connect();
@@ -618,10 +651,26 @@ async function run() {
     const result = await processNextAutoFlowRun(pool, { adapters: defaultAdapters() });
     assert.equal(result.outcome, "RUN_FAILED");
     assert.equal(result.code, AUTOFLOW_ERROR_CODES.AUTOFLOW_DATA_INVARIANT_VIOLATION);
-    assert.equal(mockDb.state.runs.get(1).status, "FAILED");
+    assert.equal(result.failureStep, "SCANNER");
+
+    const run = mockDb.state.runs.get(1);
+    assert.equal(run.status, "FAILED");
+    assert.equal(run.failure_step, "SCANNER");
+
+    const scannerAfter = [...mockDb.state.steps.values()].find(s => s.step_key === "SCANNER");
+    const resolverAfter = [...mockDb.state.steps.values()].find(s => s.step_key === "VEHICLE_RESOLVER");
+    assert.equal(scannerAfter.status, "FAILED");
+    assert.equal(resolverAfter.status, "FAILED");
+
+    const eventTypes = mockDb.state.events.map(e => e.event_type);
+    assert.ok(eventTypes.includes(AUTOFLOW_EVENT_TYPES.STEP_FAILED));
+    assert.ok(eventTypes.includes(AUTOFLOW_EVENT_TYPES.RUN_FAILED));
+
+    assert.equal(run.summary.step_statuses.SCANNER, "FAILED");
+    assert.equal(run.summary.step_statuses.VEHICLE_RESOLVER, "FAILED");
   });
 
-  await test("QUEUED/RUNNING step with NULL domain_run_id -> AUTOFLOW_DATA_INVARIANT_VIOLATION", async () => {
+  await test("QUEUED/RUNNING step with NULL domain_run_id -> failStepAndRun (step FAILED, virtual child FAILED, run FAILED, summary updated)", async () => {
     const mockDb = createMockDb();
     const pool = wrapAsPool(mockDb);
     const client = await pool.connect();
@@ -632,6 +681,36 @@ async function run() {
     const result = await processNextAutoFlowRun(pool, { adapters: defaultAdapters() });
     assert.equal(result.outcome, "RUN_FAILED");
     assert.equal(result.code, AUTOFLOW_ERROR_CODES.AUTOFLOW_DATA_INVARIANT_VIOLATION);
+    assert.equal(result.failureStep, "SCANNER");
+
+    const scannerAfter = [...mockDb.state.steps.values()].find(s => s.step_key === "SCANNER");
+    const resolverAfter = [...mockDb.state.steps.values()].find(s => s.step_key === "VEHICLE_RESOLVER");
+    assert.equal(scannerAfter.status, "FAILED");
+    assert.equal(resolverAfter.status, "FAILED");
+
+    const run = mockDb.state.runs.get(1);
+    assert.equal(run.summary.step_statuses.SCANNER, "FAILED");
+  });
+
+  await test("full step-set corruption keeps run-only failRun, but still best-effort refreshes summary from real rows", async () => {
+    const mockDb = createMockDb();
+    const pool = wrapAsPool(mockDb);
+    const client = await pool.connect();
+    await seedFreshRun(mockDb, client, { id: 1 });
+
+    const fusionStep = [...mockDb.state.steps.values()].find(s => s.step_key === "FUSION");
+    mockDb.state.steps.delete(fusionStep.id); // corrupt: only 5 rows now
+
+    const result = await processNextAutoFlowRun(pool, { adapters: defaultAdapters() });
+    assert.equal(result.code, AUTOFLOW_ERROR_CODES.AUTOFLOW_DATA_INVARIANT_VIOLATION);
+
+    const run = mockDb.state.runs.get(1);
+    assert.equal(run.status, "FAILED");
+    // Best-effort summary still reflects the 5 real remaining rows,
+    // none of which were forcibly touched (unsafe to guess FUSION's
+    // state when its row doesn't even exist).
+    assert.equal(Object.keys(run.summary.step_statuses).length, 5);
+    assert.equal(run.summary.step_statuses.SCANNER, "PENDING");
   });
 
   // -----------------------------------------------------
@@ -659,6 +738,31 @@ async function run() {
     assert.equal(scanner.status, "RUNNING");
     const events = mockDb.state.events.filter(e => e.step_key === "SCANNER");
     assert.equal(events.length, 1); // only STEP_STARTED, no extra event for mirroring
+  });
+
+  await test("QUEUED -> RUNNING mirror transition refreshes summary in the same tick; unchanged re-poll does not", async () => {
+    const mockDb = createMockDb();
+    const pool = wrapAsPool(mockDb);
+    const client = await pool.connect();
+    await seedFreshRun(mockDb, client, { id: 1 });
+
+    const adapters = defaultAdapters({
+      SCANNER: stubAdapter({
+        createResponses: [created(101)],
+        getResponses: [fetched("RUNNING"), fetched("RUNNING")]
+      })
+    });
+
+    await processNextAutoFlowRun(pool, { adapters }); // PENDING -> QUEUED
+    assert.equal(mockDb.state.runs.get(1).summary.step_statuses.SCANNER, "QUEUED");
+
+    await processNextAutoFlowRun(pool, { adapters }); // QUEUED -> RUNNING mirror: summary must update
+    assert.equal(mockDb.state.runs.get(1).summary.step_statuses.SCANNER, "RUNNING");
+
+    const summaryBeforeNoOp = JSON.stringify(mockDb.state.runs.get(1).summary);
+    await processNextAutoFlowRun(pool, { adapters }); // RUNNING -> RUNNING (unchanged): no summary write
+    const summaryAfterNoOp = JSON.stringify(mockDb.state.runs.get(1).summary);
+    assert.equal(summaryBeforeNoOp, summaryAfterNoOp);
   });
 
   // -----------------------------------------------------
@@ -915,7 +1019,7 @@ async function run() {
     assert.equal(result.code, AUTOFLOW_ERROR_CODES.UNSUPPORTED_DOMAIN_RUN_STATUS);
   });
 
-  await test("createRun 23505 on a single-active index -> DOMAIN_RUN_CONFLICT", async () => {
+  await test("createRun 23505 on a single-active index -> savepoint recovery, transaction continues, step+run FAILED with events (mock)", async () => {
     const mockDb = createMockDb();
     const pool = wrapAsPool(mockDb);
     const client = await pool.connect();
@@ -935,7 +1039,28 @@ async function run() {
     });
 
     const result = await processNextAutoFlowRun(pool, { adapters });
+    assert.equal(result.outcome, "RUN_FAILED");
     assert.equal(result.code, AUTOFLOW_ERROR_CODES.DOMAIN_RUN_CONFLICT);
+    assert.equal(result.failureStep, "SCANNER");
+
+    // Proves the tick's transaction was NOT aborted by the 23505:
+    // the FAILED writes below only exist if failStepAndRun's
+    // UPDATE/INSERT statements executed successfully after the
+    // savepoint recovery, in the SAME transaction, ending in COMMIT.
+    assert.equal(mockDb.state.transactionLog.at(-1), "COMMIT");
+    assert.ok(mockDb.state.transactionLog.includes("SAVEPOINT autoflow_domain_create"));
+    assert.ok(mockDb.state.transactionLog.includes("ROLLBACK TO SAVEPOINT autoflow_domain_create"));
+
+    const run = mockDb.state.runs.get(1);
+    assert.equal(run.status, "FAILED");
+    assert.equal(run.failure_step, "SCANNER");
+
+    const scanner = [...mockDb.state.steps.values()].find(s => s.step_key === "SCANNER");
+    assert.equal(scanner.status, "FAILED");
+
+    const eventTypes = mockDb.state.events.map(e => e.event_type);
+    assert.ok(eventTypes.includes(AUTOFLOW_EVENT_TYPES.STEP_FAILED));
+    assert.ok(eventTypes.includes(AUTOFLOW_EVENT_TYPES.RUN_FAILED));
   });
 
   // -----------------------------------------------------
