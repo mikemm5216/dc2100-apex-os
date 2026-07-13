@@ -23,6 +23,14 @@ const {
   listPersonRadar
 } = require("../../../lib/person/api");
 
+const {
+  createFusionRun,
+  getFusionCandidateDetail,
+  getFusionRun,
+  listFusionCandidates,
+  listFusionRuns
+} = require("../../../lib/fusion/api");
+
 const port = process.env.PORT || 3000;
 
 const VALID_STATUSES = new Set([
@@ -1312,6 +1320,118 @@ const server = http.createServer(async (req, res) => {
       const result = await getPersonRadarDetail(
         pool,
         personRadarMatch[1]
+      );
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  // =======================================================
+  // FUSION (Task 3.3F)
+  // =======================================================
+
+  if (
+    req.method === "POST" &&
+    pathname === "/fusion/run"
+  ) {
+    let body;
+
+    try {
+      body = await readJsonBody(req);
+    } catch (error) {
+      return sendJson(res, 400, {
+        error: error.message,
+        message:
+          "Request body must contain valid JSON."
+      });
+    }
+
+    try {
+      const result = await createFusionRun(pool, body);
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  const fusionRunMatch = pathname.match(
+    /^\/fusion\/runs\/([0-9]+)$/
+  );
+
+  if (req.method === "GET" && fusionRunMatch) {
+    try {
+      const result = await getFusionRun(
+        pool,
+        fusionRunMatch[1]
+      );
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  if (req.method === "GET" && pathname === "/fusion/runs") {
+    try {
+      const result = await listFusionRuns(
+        pool,
+        requestUrl.searchParams
+      );
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  const fusionCandidateMatch = pathname.match(
+    /^\/fusion\/candidates\/([0-9]+)$/
+  );
+
+  if (req.method === "GET" && fusionCandidateMatch) {
+    try {
+      const result = await getFusionCandidateDetail(
+        pool,
+        fusionCandidateMatch[1]
+      );
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  if (
+    req.method === "GET" &&
+    pathname === "/fusion/candidates"
+  ) {
+    try {
+      const result = await listFusionCandidates(
+        pool,
+        requestUrl.searchParams
       );
 
       return sendJson(
