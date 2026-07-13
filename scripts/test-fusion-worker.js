@@ -312,13 +312,60 @@ async function run() {
   assert.ok(skipError, "Skip reason must be persisted.");
   assert.equal(skipError.vehicle_code, "MUSTANG");
 
-  // Tier accounting: link 701 is an exact vehicle_id match
-  // (EXACT_VEHICLE); link 702 has no vehicle_id but a
-  // matching model (also EXACT_VEHICLE per tier rules).
-  assert.equal(result.exactVehicleCount, 4);
-  assert.equal(result.sameSeriesCount, 0);
+  // Tier accounting: link 701 has vehicle_id = GR86's own
+  // id => EXACT_VEHICLE. Link 702 has no vehicle_id, and
+  // its vehicle_model ("GR Corolla") does NOT match the
+  // target vehicle's model ("GR86") — only vehicle_brand
+  // ("Toyota") and vehicle_series ("GR") match => SAME_SERIES.
+  // Each link is crossed with both of GR86's 2 eligible news
+  // signals, so each tier appears exactly twice.
+  assert.equal(result.exactVehicleCount, 2);
+  assert.equal(result.sameSeriesCount, 2);
   assert.equal(result.sameBrandCount, 0);
   assert.equal(result.noPersonSignalCount, 0);
+
+  // Two distinct people (501, 502) were used, and each
+  // resolves to its documented tier across both candidate
+  // rows it appears in.
+  const insertedCandidates = [
+    ...mockDb.state.candidates.values()
+  ].map(entry => entry.values);
+
+  const personIds = new Set(
+    insertedCandidates.map(values => values[4])
+  );
+
+  assert.deepEqual(
+    [...personIds].sort(),
+    ["501", "502"],
+    "Both eligible people must produce candidates."
+  );
+
+  const link701Candidates = insertedCandidates.filter(
+    values => String(values[4]) === "501"
+  );
+  const link702Candidates = insertedCandidates.filter(
+    values => String(values[4]) === "502"
+  );
+
+  assert.equal(link701Candidates.length, 2);
+  assert.equal(link702Candidates.length, 2);
+
+  for (const values of link701Candidates) {
+    assert.equal(
+      values[6],
+      "EXACT_VEHICLE",
+      "Link 701 (vehicle_id match) must resolve as EXACT_VEHICLE."
+    );
+  }
+
+  for (const values of link702Candidates) {
+    assert.equal(
+      values[6],
+      "SAME_SERIES",
+      "Link 702 (same series, different model) must resolve as SAME_SERIES."
+    );
+  }
 
   // -------------------------------------------------------
   // Case 2: re-running the identical evidence upserts
