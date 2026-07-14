@@ -39,6 +39,21 @@ const {
   resumeAutoFlowRun
 } = require("../../../lib/autoflow/api");
 
+const {
+  createStoryRunHandler,
+  listStoryRuns,
+  getStoryRun,
+  approveCandidateHandler,
+  selectDirectionHandler,
+  lockOutlineHandler,
+  lockScriptHandler,
+  regenerateHandler,
+  cancelHandler: cancelStoryRunHandler,
+  resumeHandler: resumeStoryRunHandler
+} = require("../../../lib/story/api");
+
+const { checkStoryAuth, isStoryApiPath } = require("../../../lib/story/auth");
+
 const port = process.env.PORT || 3000;
 
 const VALID_STATUSES = new Set([
@@ -85,7 +100,8 @@ function sendJson(res, statusCode, data) {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods":
       "GET, POST, PATCH, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Idempotency-Key"
+    "Access-Control-Allow-Headers":
+      "Content-Type, Idempotency-Key, Authorization"
   });
 
   res.end(JSON.stringify(data));
@@ -205,6 +221,21 @@ function parseBulkIds(
   return {
     ids
   };
+}
+
+// Story Pipeline body-parse failures always report the stable
+// VALIDATION_ERROR code in the `error` field (never the raw
+// readJsonBody() error.message like "INVALID_JSON" or
+// "BODY_TOO_LARGE" -- those stay distinguishable only in the
+// human-readable `message`).
+function storyValidationErrorResponse(res, error) {
+  return sendJson(res, 400, {
+    error: "VALIDATION_ERROR",
+    message:
+      error.message === "BODY_TOO_LARGE"
+        ? "Request body is too large."
+        : "Request body must contain valid JSON."
+  });
 }
 
 function handleDatabaseError(res, error) {
@@ -421,13 +452,21 @@ async function getSourceById(queryable, sourceId) {
   return result.rows[0] || null;
 }
 
-const server = http.createServer(async (req, res) => {
+// Wrapped in a factory (rather than built directly against the
+// module-level `pool`) so tests can spin up a real http.Server
+// bound to an ephemeral port against a mock pool, without a
+// live Postgres connection and without the module-load side
+// effect of binding the real service port -- see the
+// `if (require.main === module)` guard below.
+function createRequestHandler(pool) {
+  return async (req, res) => {
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods":
         "GET, POST, PATCH, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Idempotency-Key"
+      "Access-Control-Allow-Headers":
+        "Content-Type, Idempotency-Key, Authorization"
     });
 
     return res.end();
@@ -439,6 +478,25 @@ const server = http.createServer(async (req, res) => {
   );
 
   const pathname = requestUrl.pathname;
+
+  // =======================================================
+  // STORY API AUTHENTICATION (Task 3.4E Production Hardening)
+  //
+  // Gated before any other routing -- including before the
+  // body is ever read -- so an unauthorized request never
+  // reaches a handler and never has its (possibly oversized)
+  // payload parsed. Scoped to /api/story/* only: it must never
+  // gate Scanner, Country News, Person Radar, Fusion, AutoFlow,
+  // or the health endpoints.
+  // =======================================================
+
+  if (isStoryApiPath(pathname)) {
+    const authResult = checkStoryAuth(req.headers);
+
+    if (!authResult.ok) {
+      return sendJson(res, authResult.statusCode, authResult.body);
+    }
+  }
 
   // =======================================================
   // HEALTH
@@ -1577,6 +1635,86 @@ const server = http.createServer(async (req, res) => {
   }
 
   // =======================================================
+  // STORY PIPELINE (Task 3.4E)
+  // =======================================================
+
+  if (req.method === "POST" && pathname === "/api/story/runs") {
+    let body;
+
+    try {
+      body = await readJsonBody(req);
+    } catch (error) {
+      return storyValidationErrorResponse(res, error);
+    }
+
+    try {
+      const result = await createStoryRunHandler(pool, body, {
+        idempotencyKey: req.headers["idempotency-key"]
+      });
+
+      return sendJson(res, result.statusCode, result.payload);
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  if (req.method === "GET" && pathname === "/api/story/runs") {
+    try {
+      const result = await listStoryRuns(pool, requestUrl.searchParams);
+
+      return sendJson(res, result.statusCode, result.payload);
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  const storyGateMatch = pathname.match(
+    /^\/api\/story\/runs\/([0-9]+)\/(approve-candidate|select-direction|lock-outline|lock-script|regenerate|cancel|resume)$/
+  );
+
+  if (req.method === "POST" && storyGateMatch) {
+    const [, runId, action] = storyGateMatch;
+
+    let body;
+
+    try {
+      body = await readJsonBody(req);
+    } catch (error) {
+      return storyValidationErrorResponse(res, error);
+    }
+
+    const actionHandlers = {
+      "approve-candidate": approveCandidateHandler,
+      "select-direction": selectDirectionHandler,
+      "lock-outline": lockOutlineHandler,
+      "lock-script": lockScriptHandler,
+      regenerate: regenerateHandler,
+      cancel: cancelStoryRunHandler,
+      resume: resumeStoryRunHandler
+    };
+
+    try {
+      const result = await actionHandlers[action](pool, runId, body);
+
+      return sendJson(res, result.statusCode, result.payload);
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  const storyRunMatch = pathname.match(/^\/api\/story\/runs\/([0-9]+)$/);
+
+  if (req.method === "GET" && storyRunMatch) {
+    try {
+      const result = await getStoryRun(pool, storyRunMatch[1]);
+
+      return sendJson(res, result.statusCode, result.payload);
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  // =======================================================
   // GET /contents
   // =======================================================
 
@@ -2519,19 +2657,29 @@ const server = http.createServer(async (req, res) => {
     error: "NOT_FOUND",
     message: "Route not found."
   });
-});
-
-server.listen(port, "0.0.0.0", () => {
-  console.log(`APEX API listening on port ${port}`);
-});
-
-async function shutdown(signal) {
-  console.log(`Received ${signal}. Shutting down API.`);
-
-  await pool.end();
-
-  process.exit(0);
+  };
 }
 
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
+const server = http.createServer(createRequestHandler(pool));
+
+// Binding the real port and registering process-level signal
+// handlers is a module-load side effect tests must not trigger
+// just by requiring this file for createRequestHandler.
+if (require.main === module) {
+  server.listen(port, "0.0.0.0", () => {
+    console.log(`APEX API listening on port ${port}`);
+  });
+
+  const shutdown = async (signal) => {
+    console.log(`Received ${signal}. Shutting down API.`);
+
+    await pool.end();
+
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+}
+
+module.exports = { createRequestHandler, server };

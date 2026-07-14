@@ -25,6 +25,10 @@ const {
   pollAutoFlowQueue
 } = require("../../lib/autoflow/worker");
 
+const {
+  pollStoryQueue
+} = require("../../lib/story/worker");
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL
 });
@@ -537,7 +541,22 @@ function pollAutoFlowQueueTick() {
   });
 }
 
-// Simple fair rotation across the five queues inside the
+// Story Pipeline queue (Task 3.4E): claims and advances
+// QUEUED_DIRECTIONS / QUEUED_OUTLINE / QUEUED_SCRIPTS story
+// runs one stage at a time. Every Human Gate (AWAITING_*) is
+// invisible to its claim query, so it never spins on a run
+// waiting for Michael's approval -- it just reports
+// unprocessed like every other idle poller.
+function pollStoryQueueTick() {
+  return pollStoryQueue({
+    pool,
+    workerId,
+    log,
+    logError
+  });
+}
+
+// Simple fair rotation across the six queues inside the
 // single polling loop. Each poll starts at a rotating
 // cursor and stops after the first queue that processed a
 // run, so no queue can permanently starve another.
@@ -546,7 +565,8 @@ const QUEUE_POLLERS = [
   pollCountryNewsQueue,
   pollPersonRadarQueue,
   pollFusionQueue,
-  pollAutoFlowQueueTick
+  pollAutoFlowQueueTick,
+  pollStoryQueueTick
 ];
 
 let queueCursor = 0;

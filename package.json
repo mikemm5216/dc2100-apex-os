@@ -23,7 +23,11 @@
     "test:fusion-api": "node scripts/test-fusion-api.js",
     "test:autoflow-core": "node scripts/test-autoflow-core.js",
     "test:autoflow-api": "node scripts/test-autoflow-api.js",
-    "test:autoflow-worker": "node scripts/test-autoflow-worker.js"
+    "test:autoflow-worker": "node scripts/test-autoflow-worker.js",
+    "test:story-core": "node scripts/test-story-core.js",
+    "test:story-provider": "node scripts/test-story-provider.js",
+    "test:story-api": "node scripts/test-story-api.js",
+    "test:story-worker": "node scripts/test-story-worker.js"
   },
   "engines": {
     "node": ">=20"

@@ -1128,7 +1128,14 @@ async function run() {
     const testPort = 34719;
     process.env.PORT = String(testPort);
 
-    require(serverPath);
+    // server.js is side-effect free when imported so routing
+    // tests can own the listener lifecycle explicitly.
+    const { server: testServer } = require(serverPath);
+
+    await new Promise((resolve, reject) => {
+      testServer.once("error", reject);
+      testServer.listen(testPort, "127.0.0.1", resolve);
+    });
 
     function httpRequest(method, requestPath, { body, headers } = {}) {
       return new Promise((resolve, reject) => {
@@ -1245,6 +1252,9 @@ async function run() {
       assert.equal(badCancelId.statusCode, 400);
       assert.equal(calls.cancel.length, 1);
     } finally {
+      await new Promise((resolve, reject) => {
+        testServer.close(error => (error ? reject(error) : resolve()));
+      });
       delete require.cache[autoflowApiPath];
       delete require.cache[dbPath];
       delete require.cache[serverPath];
@@ -1253,10 +1263,6 @@ async function run() {
 
   console.log(`\n${passed} passed, ${failed} failed`);
 
-  // The route-level test (30) requires(...) the real server.js,
-  // which binds a live TCP listener with no exported handle to
-  // close -- force process exit instead of waiting on an empty
-  // event loop that will never come.
   process.exit(failed > 0 ? 1 : 0);
 }
 
