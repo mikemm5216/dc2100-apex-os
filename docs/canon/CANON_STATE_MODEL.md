@@ -31,9 +31,9 @@ Region、Resource、Relationship、Competition）的狀態機。
   （「被系統首次發現，尚未經人工確認」），但作用在不同的實體類型上，
   不代表兩個狀態機共享同一個狀態機定義。
 
-`CANON.md` 第 15 節既有的 `PROPOSED → REVIEWED → CEO_APPROVED → CANON` 生命週期，
-是本文件 `PROPOSED_STATE_CHANGE → CANON_STATE_COMMITTED` 機制（見第 5 節）的既有雛形；
-本文件將其正式擴展為可追蹤、可版本化的完整狀態模型。
+`CANON.md` — Canon Change Rule 既有的 `PROPOSED → REVIEWED → CEO_APPROVED → CANON`
+生命週期，是本文件 `PROPOSED_STATE_CHANGE → CANON_STATE_COMMITTED` 機制（見第 5 節）
+的既有雛形；本文件將其正式擴展為可追蹤、可版本化的完整狀態模型。
 
 ---
 
@@ -99,7 +99,10 @@ Gate 名稱對照第 5 節。
   `WILD_CARD_GRANTED`、`COMEBACK_GRANTED`。
 - **allowed next states**：`QUALIFIER_PASSED`、`QUALIFIER_FAILED`、`DISQUALIFIED`、`WITHDRAWN`。
 - **required evidence**：`APEX_RULES_V1.md` 第 3 節 Entry Rules 的合規紀錄。
-- **required human gate**：無新增 Gate（沿用 Gate 1 的核准效力）。
+- **required human gate**：依前置狀態而定：從 `CANDIDATE_APPROVED` 而來，沿用其
+  Gate 1 效力，不需額外新增 Gate；從 `RESERVE` 遞補而來，沿用其已完成的 Gate 7
+  效力（見 `RESERVE` 條目）；從 `WILD_CARD_GRANTED` 或 `COMEBACK_GRANTED` 而來，
+  沿用其已完成的 Gate 7 效力。
 - **reversible or irreversible**：Reversible（賽事尚未產生結果前）。
 - **effect on future scripts**：可撰寫報名、資格審核類 Short（例如 BEAT-01、BEAT-04）。
 
@@ -136,7 +139,9 @@ Gate 名稱對照第 5 節。
 - **valid previous states**：`QUALIFIER_FAILED`。
 - **allowed next states**：`QUALIFIER_ENTERED`（遞補，見 `APEX_RULES_V1.md` 第 8 節）。
 - **required evidence**：Scoring 顯示接近晉級門檻，或 Organizers 的故事價值標記。
-- **required human gate**：Gate 1 — Candidate Selection（每次遞補皆須重新確認）。
+- **required human gate**：Gate 1（Candidate Selection，核准某 Candidate 值得成為
+  Reserve 候選，形成 `PROPOSED_STATE_CHANGE`）→ Gate 7（Canon State Commit，
+  正式寫入 `RESERVE` 狀態）。遞補至 `QUALIFIER_ENTERED` 時必須再次通過 Gate 7。
 - **reversible or irreversible**：Reversible（可長期停留在此狀態，等待名額空缺）。
 - **effect on future scripts**：可撰寫 Underground Circuit 磨練類內容，
   不得撰寫其已晉級的結果。
@@ -176,8 +181,10 @@ Gate 名稱對照第 5 節。
 - **required human gate**：Gate 1 — Candidate Selection。
 - **reversible or irreversible**：Reversible（代價可長期未完成而不影響其他狀態）。
 - **effect on future scripts**：Script 必須呈現代價本身的執行過程,不得跳過代價直接寫成功。
-- **restriction**：`DISQUALIFIED` 實體不得進入本狀態（與 Wild Card 相同限制,
-  見 `APEX_RULES_V1.md` 第 7 節）。
+- **restriction**：`DISQUALIFIED` 實體在同一 Season 內不得進入本狀態（與 Wild Card
+  相同限制，見 `APEX_RULES_V1.md` 第 7 節與 `DC2100_STORY_BIBLE_V1.md` 第 13.3 節
+  Locked Decision）。跨 Season 重新申請後的全新 `DISCOVERED` 候選不受此限制，
+  但仍需依序通過 Gate 1 與 Gate 7 的完整審核流程。
 
 ### COMEBACK_GRANTED
 
@@ -197,7 +204,9 @@ Gate 名稱對照第 5 節。
 - **valid previous states**：無（初始關係狀態）。
 - **allowed next states**：維持原狀，或透過新的 Beat 演化（不透過本狀態機直接轉為 Alliance）。
 - **required evidence**：Outline 或 Script 中明確描寫的衝突事件記錄。
-- **required human gate**：Gate 3 — Outline Lock。
+- **required human gate**：Gate 3（Outline Lock，鎖定 Outline 並形成
+  `PROPOSED_STATE_CHANGE`）→ Gate 7（Canon State Commit，可與同一 Beat 內
+  其他敘事性 State 一併 batch commit）。
 - **reversible or irreversible**：Reversible（關係性質可在後續 Season 被重新詮釋，
   但本次事件的歷史紀錄不可抹除）。
 - **effect on future scripts**：後續 Script 涉及此二實體互動時，必須尊重此敵對關係
@@ -210,7 +219,8 @@ Gate 名稱對照第 5 節。
 - **valid previous states**：無，或 `RIVALRY_CREATED`（敵轉友需經 Gate 3 明確敘事支持）。
 - **allowed next states**：`ALLIANCE_BROKEN`。
 - **required evidence**：Outline 或 Script 中明確描寫的合作建立事件記錄。
-- **required human gate**：Gate 3 — Outline Lock。
+- **required human gate**：Gate 3（Outline Lock，形成 `PROPOSED_STATE_CHANGE`）
+  → Gate 7（Canon State Commit，可 batch commit）。
 - **reversible or irreversible**：Reversible（可被 ALLIANCE_BROKEN 終止）。
 - **effect on future scripts**：後續 Script 必須將此合作關係視為既定背景。
 
@@ -222,7 +232,8 @@ Gate 名稱對照第 5 節。
 - **allowed next states**：無（此關係實例終結；若雙方後續再次合作，
   須建立新的 `ALLIANCE_CREATED` 實例）。
 - **required evidence**：Outline 或 Script 中明確描寫的破裂事件記錄。
-- **required human gate**：Gate 3 — Outline Lock。
+- **required human gate**：Gate 3（Outline Lock，形成 `PROPOSED_STATE_CHANGE`）
+  → Gate 7（Canon State Commit，可 batch commit）。
 - **reversible or irreversible**：Irreversible（此次破裂為歷史事實）。
 - **effect on future scripts**：後續 Script 若描寫雙方重新合作，必須明確處理為
   新的關係弧線，不得假裝破裂未曾發生。
@@ -235,7 +246,8 @@ Gate 名稱對照第 5 節。
 - **valid previous states**：無，或 `RESOURCE_LOST`（重新取得）。
 - **allowed next states**：`RESOURCE_LOST`。
 - **required evidence**：Beat 中明確指定的資源取得事件與資源類別。
-- **required human gate**：Gate 3 — Outline Lock。
+- **required human gate**：Gate 3（Outline Lock，形成 `PROPOSED_STATE_CHANGE`）
+  → Gate 7（Canon State Commit，可 batch commit）。
 - **reversible or irreversible**：Reversible。
 - **effect on future scripts**：後續 Script 中該實體的資源餘量必須反映此次取得。
 
@@ -246,7 +258,8 @@ Gate 名稱對照第 5 節。
 - **valid previous states**：`RESOURCE_ACQUIRED`，或無（初始匱乏狀態）。
 - **allowed next states**：`RESOURCE_ACQUIRED`。
 - **required evidence**：Beat 中明確指定的資源損失事件與資源類別。
-- **required human gate**：Gate 3 — Outline Lock。
+- **required human gate**：Gate 3（Outline Lock，形成 `PROPOSED_STATE_CHANGE`）
+  → Gate 7（Canon State Commit，可 batch commit）。
 - **reversible or irreversible**：Reversible。
 - **effect on future scripts**：後續 Script 必須反映該實體因資源匱乏產生的
   實際限制（例如無法完成特定 Race Format）。
@@ -258,7 +271,8 @@ Gate 名稱對照第 5 節。
 - **valid previous states**：無，或 `VEHICLE_REPAIRED`。
 - **allowed next states**：`VEHICLE_REPAIRED`。
 - **required evidence**：Race Format 結果紀錄或 Beat 事件描述。
-- **required human gate**：Gate 3 — Outline Lock。
+- **required human gate**：Gate 3（Outline Lock，形成 `PROPOSED_STATE_CHANGE`）
+  → Gate 7（Canon State Commit，可 batch commit）。
 - **reversible or irreversible**：Reversible。
 - **effect on future scripts**：後續 Script 必須反映該車輛的實際受損狀態，
   直到 `VEHICLE_REPAIRED` 發生前不得描寫其恢復滿血表現。
@@ -271,7 +285,8 @@ Gate 名稱對照第 5 節。
 - **allowed next states**：`VEHICLE_DAMAGED`。
 - **required evidence**：修復事件紀錄，須消耗對應的 Repair Time 與 Mechanical Parts 資源
   （見 Story Bible 第 7 節）。
-- **required human gate**：Gate 3 — Outline Lock。
+- **required human gate**：Gate 3（Outline Lock，形成 `PROPOSED_STATE_CHANGE`）
+  → Gate 7（Canon State Commit，可 batch commit）。
 - **reversible or irreversible**：Reversible。
 - **effect on future scripts**：修復必須呈現時間與資源代價，不得描寫為瞬間完成。
 
@@ -282,17 +297,34 @@ Gate 名稱對照第 5 節。
 - **valid previous states**：無（每次更換皆為獨立事件）。
 - **allowed next states**：`TEAM_CHANGED`（可再次發生，各自為獨立歷史事件）。
 - **required evidence**：`APEX_RULES_V1.md` 第 3 節 Team Eligibility 的重新提交紀錄。
-- **required human gate**：Gate 1 — Candidate Selection。
+- **required human gate**：Gate 1（Candidate Selection，核准資格重新提交，形成
+  `PROPOSED_STATE_CHANGE`）→ Gate 7（Canon State Commit，可 batch commit）。
 - **reversible or irreversible**：Irreversible（每次變更本身是歷史事實，
   但實體可再次變更產生新的事件）。
 - **effect on future scripts**：後續 Script 必須反映該 Driver 目前的實際所屬 Team，
   不得沿用舊有 Team 關係。
 
+### REGION_LOCKED
+
+- **meaning**：一個 Region Slot 的初始狀態，代表該 Region 尚未產出任何正式賽事結果，
+  對 World Tour 尚未開放。
+- **valid entity type**：REGION。
+- **valid previous states**：無（Season 初始化時的預設狀態）。
+- **allowed next states**：`REGION_UNLOCKED`。
+- **required evidence**：Season initialization record（Season 大綱正式生效的紀錄，
+  見 `SEASON_1_GLOBAL_QUALIFIERS.md` 第 2 節 Beginning State）。
+- **required human gate**：initial Season approval（Season 大綱本身的 Gate 7 — Canon
+  State Commit，於 Season 開始時一次性套用至全部 Region Slot）。
+- **reversible or irreversible**：Irreversible within the same Season（同一 Season
+  內，一旦轉為 `REGION_UNLOCKED` 後不得回復為 `REGION_LOCKED`）。
+- **effect on future scripts**：`REGION_LOCKED` 狀態下，該 Region 的賽事結果
+  不得被 Script 當作最終結果處理，僅能撰寫尚在進行中的賽事過程。
+
 ### REGION_UNLOCKED
 
 - **meaning**：一個 Region Slot 的賽事結果正式產出，該 Region 對 World Tour 開放。
 - **valid entity type**：REGION。
-- **valid previous states**：無（初始為隱含的 `REGION_LOCKED` 狀態，非正式列舉值）。
+- **valid previous states**：`REGION_LOCKED`。
 - **allowed next states**：無（Season 內為終局狀態）。
 - **required evidence**：該 Region 全部 Final Circuit 賽事的 Scoring 結果彙總。
 - **required human gate**：Gate 7 — Canon State Commit。
@@ -306,13 +338,16 @@ Gate 名稱對照第 5 節。
 - **valid entity type**：DRIVER、TEAM。
 - **valid previous states**：`QUALIFIER_ENTERED`、`QUALIFIER_PASSED`、`RESERVE`、
   `WILD_CARD_ELIGIBLE`、`COMEBACK_PENDING`。
-- **allowed next states**：無（終局狀態；不得恢復為 `RESERVE` 或 `WILD_CARD_ELIGIBLE`，
-  見 `APEX_RULES_V1.md` 第 7 節）。
+- **allowed next states**：本 Season 內無（終局狀態；不得恢復為 `RESERVE`、
+  `WILD_CARD_ELIGIBLE` 或 `COMEBACK_PENDING`，見 `APEX_RULES_V1.md` 第 7 節）。
+  跨 Season 時，同一車手/車隊可以全新的 `DISCOVERED` Candidate 身分重新申請，
+  依序通過 Gate 1 與 Gate 7；原 `DISQUALIFIED` 歷史紀錄永久保留，不因重新申請
+  而被刪除或掩蓋（見 `DC2100_STORY_BIBLE_V1.md` 第 13.3 節 Locked Decision）。
 - **required evidence**：`APEX_RULES_V1.md` 第 11 節 Penalties 的違規判定紀錄。
 - **required human gate**：Gate 7 — Canon State Commit。
 - **reversible or irreversible**：Irreversible。
 - **effect on future scripts**：Script 可撰寫該實體的後果與其他角色的反應，
-  但不得撰寫其重返本 Season 賽事。
+  但不得撰寫其重返本 Season 賽事；跨 Season 重新申請的新候選須被當作全新實體處理。
 
 ### WITHDRAWN
 
@@ -323,7 +358,8 @@ Gate 名稱對照第 5 節。
 - **allowed next states**：`COMEBACK_PENDING`（本 Season 內），或於未來 Season
   重新以 `DISCOVERED` 狀態進入新的候選流程。
 - **required evidence**：Team 或 Driver 的主動退出聲明，須記錄於 Beat 或 Outline 中。
-- **required human gate**：Gate 3 — Outline Lock。
+- **required human gate**：Gate 3（Outline Lock，鎖定退出聲明並形成
+  `PROPOSED_STATE_CHANGE`）→ Gate 7（Canon State Commit，正式生效）。
 - **reversible or irreversible**：Reversible（保留未來重新報名的可能性）。
 - **effect on future scripts**：Script 應保留該實體的尊嚴敘事，不得將主動退出
   等同於淘汰的負面敘事處理。
@@ -364,7 +400,7 @@ Gate 名稱對照第 5 節。
    - **Group E — Team Membership**（DRIVER 實體的 Team 歸屬）：
      `TEAM_CHANGED`（可重複發生的獨立事件）
    - **Group F — Region Lock**（REGION 實體）：
-     `(implicit REGION_LOCKED) → REGION_UNLOCKED`
+     `REGION_LOCKED → REGION_UNLOCKED`
 3. 一個實體可以同時擁有一個 Group A 狀態、多個 Group B 關係、一組 Group C 資源餘量，
    以及一個 Group D 車輛狀態——這些互不衝突，因為它們描述的是同一實體的不同面向。
 4. 任何違反第 2 節列出之 `valid previous states` 的轉移請求，Pipeline 必須拒絕，
@@ -380,13 +416,13 @@ Gate 名稱對照第 5 節。
 
 | Gate | 名稱 | 作用 |
 |---|---|---|
-| Gate 1 | Candidate Selection | 確認 Fusion Candidate 或既有 Reserve/Wild Card/Comeback 候選人是否可填入 Slot 或改變資格狀態。 |
+| Gate 1 | Candidate Selection | 確認 Fusion Candidate 或既有 Reserve/Wild Card/Comeback 候選人是否可填入 Slot 或改變資格狀態，形成對應的 `PROPOSED_STATE_CHANGE`。 |
 | Gate 2 | Story Direction Selection | 確認 Season 或 Beat 群組的敘事方向（例如 Act 的 escalating conflict 走向）符合 Story Bible 的 Tone 與 Immutable Canon。 |
-| Gate 3 | Outline Lock | 鎖定 Beat 層級的 setup / conflict / decision / consequence 與其觸發的 Relationship / Resource / Vehicle / Region 類 State 事件。 |
-| Gate 4 | Script Lock | 鎖定實際 Script 文字內容，確認與已 Lock 的 Outline 一致。 |
+| Gate 3 | Outline Lock | 鎖定 Beat 層級的 setup / conflict / decision / consequence，以及其中 proposed 的 Relationship / Resource / Vehicle / Team 類 State 變更，形成對應的 `PROPOSED_STATE_CHANGE`。**Gate 3 本身不得直接產生 `CANON_STATE_COMMITTED`**，只鎖定 Outline 與提案內容。 |
+| Gate 4 | Script Lock | 鎖定實際 Script 文字內容，確認與已 Lock 的 Outline 一致，不得修改 Outline 已鎖定的結果。 |
 | Gate 5 | Visual Lock | 鎖定視覺呈現方向（車輛外觀、場景、角色造型），確認符合 IP Safety（Story Bible 第 12 節）。 |
-| Gate 6 | Publish Approval | 核准 Short 或長片 Episode 正式發布。 |
-| Gate 7 | Canon State Commit | 將涉及 Competition Advancement（Group A）或 Region Lock（Group F）的 State 事件由提案正式轉為 Canon 事實。 |
+| Gate 6 | Publish Approval | 核准 Short 或長片 Episode 正式發布。核准發布**仍不等於 Canon Commit**。 |
+| Gate 7 | Canon State Commit | 正式核准**所有**第 2 節定義的 Canon State（不分 Group），將 `PROPOSED_STATE_CHANGE` 轉為 `CANON_STATE_COMMITTED`。可以對單一 Beat 或單一 Content 內的多筆敘事性 State 進行 batch commit。每筆記錄必須包含 `approved_by`、`approved_at`、`evidence_refs`（見第 7 節）。 |
 
 **核心規則**：Canon State **不能**在 AI 生成 Outline 或 Script 時直接正式寫入。
 
@@ -404,13 +440,19 @@ CANON_STATE_COMMITTED
 
 適用範圍說明：
 
-- 影響 Group A（Competition Advancement）與 Group F（Region Lock）的狀態變更，
-  一律要求 `PROPOSED_STATE_CHANGE → Gate 7 → CANON_STATE_COMMITTED` 的完整流程，
-  不因 Gate 1-6 已通過而略過 Gate 7。
-- 影響 Group B、C、D、E（Relationship、Resource、Vehicle、Team Membership）的
-  敘事性狀態變更，經 Gate 3（Outline Lock）核准後即可視為
-  `CANON_STATE_COMMITTED`，不需額外的 Gate 7，因為其影響範圍屬於故事細節
-  而非正式比賽結果。
+- **所有** Group（A 至 F）的 State 變更，一律要求完整的
+  `PROPOSED_STATE_CHANGE → Gate 7 → CANON_STATE_COMMITTED` 流程，沒有例外。
+  不存在「經 Gate 3 即自動視為 Canon Commit」的情況。
+- Group A（Competition Advancement）與 Group F（Region Lock）涉及正式比賽結果
+  與資格，每筆 Transition 通常需要 Gate 7 逐筆審核。
+- Group B、C、D、E（Relationship、Resource、Vehicle、Team Membership）屬於
+  故事細節層級的狀態，Gate 7 審核時**允許以 Beat 或 Content 為單位進行
+  batch commit**（一次核准同一 Beat 內的多筆敘事性 State 事件），但仍必須
+  每筆記錄 `approved_by` / `approved_at` / `evidence_refs`。
+- 未通過 Gate 7 的任何 State（不論來自哪個 Group），即使其對應內容已完成
+  Script Lock（Gate 4）、Visual Lock（Gate 5）甚至已完成 Publish Approval
+  （Gate 6）發布，也只能視為 proposed / non-canon presentation，不構成正式
+  Canon 事實。
 
 ---
 
@@ -523,7 +565,35 @@ CANON_STATE_COMMITTED
 }
 ```
 
-### 8.3 範例：Relationship 類事件（僅需 Gate 3）
+### 8.3 範例：Relationship 類事件在 Gate 3 形成提案（尚非 Canon）
+
+```json
+{
+  "transition_id": "TRANSITION-2100-000158",
+  "canon_version": "1.0.0",
+  "season_version": "1.0.0",
+  "rules_version": "1.0.0",
+  "state": "PROPOSED_STATE_CHANGE",
+  "target_state": "RIVALRY_CREATED",
+  "entity_type": "RELATIONSHIP",
+  "entity_slot": "CANDIDATE_SLOT_11:FACTION_ROLE_RESOURCE_CARTEL",
+  "layer": "RELATIONSHIP",
+  "beat_id": "BEAT-06",
+  "evidence_refs": ["outline:SEASON_1:BEAT-06"],
+  "source_content_id": null,
+  "proposed_by": "SCRIPT_PIPELINE_AI",
+  "proposed_at": "2100-01-20T06:00:00Z",
+  "required_human_gate": "GATE_7_CANON_STATE_COMMIT",
+  "approved_by": null,
+  "approved_at": null,
+  "rollback_reference": null
+}
+```
+
+Gate 3（Outline Lock）核准此 Beat 的 Outline 後，此提案隨附於 Outline 一併鎖定，
+但仍維持 `PROPOSED_STATE_CHANGE`，尚不構成 Canon。
+
+### 8.4 範例：同一事件經 Gate 7 batch commit 後正式生效
 
 ```json
 {
@@ -541,9 +611,14 @@ CANON_STATE_COMMITTED
   "source_content_id": null,
   "proposed_by": "SCRIPT_PIPELINE_AI",
   "proposed_at": "2100-01-20T06:00:00Z",
-  "required_human_gate": "GATE_3_OUTLINE_LOCK",
+  "required_human_gate": "GATE_7_CANON_STATE_COMMIT",
   "approved_by": "michael",
-  "approved_at": "2100-01-20T08:00:00Z",
-  "rollback_reference": null
+  "approved_at": "2100-01-20T09:00:00Z",
+  "rollback_reference": null,
+  "batch_commit_id": "GATE7-BATCH-SEASON1-BEAT06"
 }
 ```
+
+`batch_commit_id` 說明此筆與同一 Beat 內其他敘事性 State 事件（例如同一 Beat 的
+`RESOURCE_ACQUIRED` / `RESOURCE_LOST`）在同一次 Gate 7 審核中一併核准，
+但每筆事件仍各自保留獨立的 `transition_id` 與 `evidence_refs`。

@@ -16,9 +16,13 @@ required_human_gate: Gate 7 — Canon State Commit (see CANON_STATE_MODEL.md)
 
 ## 0. 與既有文件的關係
 
-`CANON.md` 第 5 節已經定義了 APEX 的四個既有層級概念（P0 Global Qualifier、
+`CANON.md` 第 5 節已經定義了 APEX 的既有層級概念（P0 Global Qualifier、
 Underground Circuit、Regional Qualifier、World Tour）。本文件是這些概念的正式競賽規則展開，
-並補上 Final Championship 作為最終層級。`P0_RULES.md` 定義的是 Global Qualifiers
+並補上 Final Championship 作為主線最終層級。本文件將 APEX 的整體架構正式鎖定為
+**APEX main competition hierarchy**（Global Qualifiers → Regional Qualifiers →
+APEX World Tour → Final Championship 四層線性主線）**加上** **Underground parallel
+pathway**（Underground Circuits 作為全季平行運行的 Side Competition Network，
+不是主線必經層級）。`P0_RULES.md` 定義的是 Global Qualifiers
 **內容製作與發布層**的操作規則（發布量、每日組合、內容分類）；本文件定義的是
 Global Qualifiers 及其後續層級的**故事內比賽規則**（資格、積分、晉級）。
 兩者是同一個 in-universe 事件的兩個視角，不互相矛盾：`P0_RULES.md` 回答「我們如何
@@ -51,14 +55,20 @@ APEX 的戲劇張力正來自「表面目的」與「真實目的」之間的落
 
 ## 2. Competition Hierarchy
 
+APEX 的整體架構由兩個部分組成：**APEX main competition hierarchy**（唯一的線性主線）
+與 **Underground parallel pathway**（全季平行運行的側線網路）。兩者不是同一條線上的
+先後關係——Underground Circuits 不是主線必經層級，任何 Driver/Team 都可以完全不經過
+Underground Circuits 就走完整條主線。
+
+### 2.0 APEX main competition hierarchy
+
 固定流程：
 
 ```
 Global Qualifiers
   → Regional Qualifiers
-    → Underground Circuits
-      → APEX World Tour
-        → Final Championship
+    → APEX World Tour
+      → Final Championship
 ```
 
 ### 2.1 Global Qualifiers
@@ -72,33 +82,49 @@ Global Qualifiers
 
 - **功能**：依地區篩選代表隊伍，強化地方汽車文化與地緣政治張力。
 - **參加條件**：僅限 Global Qualifiers 中 QUALIFIED 或獲得 WILD_CARD_GRANTED 的 Driver/Team。
-- **結果**：產出各地區代表名單，決定誰有資格進入 Underground Circuits 磨練或直接晉級 World Tour。
+- **結果**：產出各地區代表名單，決定誰有資格直接晉級 APEX World Tour。
+  未在此直接晉級的 Driver/Team，可自由選擇是否透過 2.5 節 Underground Circuits
+  累積 Evidence，以爭取 Wild Card 或 Comeback 機會——但 Underground Circuits
+  本身不構成晉級 World Tour 的另一條路徑。
 
-### 2.3 Underground Circuits
-
-- **功能**：作為技術磨練場、Reserve 候選人的復活跑道，以及 Comeback Arc 的主要發生地。
-- **參加條件**：Regional Qualifiers 的 RESERVE 名單、COMEBACK_PENDING 名單，
-  以及主動選擇以地下路線證明自己的 Driver/Team。
-- **雙重定位說明**：Underground Circuits 在 Hierarchy 中位於 Regional Qualifiers 之後，
-  代表其作為「技術驗證關卡」的正式位置；但同時，Underground Circuits 全季常態開放，
-  可在任何時間點作為 Reserve 與 Comeback 的側線舞台被重複使用。這不是規則矛盾，
-  而是刻意的雙重功能設計：一條路是「循序晉級」，另一條路是「隨時證明自己」。
-- **結果**：勝出者可獲得 WILD_CARD_ELIGIBLE 或直接的 COMEBACK_GRANTED 資格。
-
-### 2.4 APEX World Tour
+### 2.3 APEX World Tour
 
 - **功能**：國際錦標賽層，連結地緣政治、資源競爭與國家聲望（見 `CANON.md` 第 5 節）。
-- **參加條件**：僅限 Regional Qualifiers 或 Underground Circuits 中取得 QUALIFIED
-  或 WILD_CARD_GRANTED 資格的 Driver/Team。
+- **參加條件**：僅限 Regional Qualifiers 中取得 `QUALIFIED` 資格的 Driver/Team，
+  或經 Gate 1 與 Gate 7 正式核准 `WILD_CARD_GRANTED` 的 Driver/Team。
+  Wild Card 的 Evidence 可能源自 Underground Circuits 表現，但 World Tour 資格
+  本身一律由官方 Human Gate 授予，Underground Circuits 不能直接授予 World Tour 資格。
 - **結果**：產出 World Tour 積分排名，決定誰有資格進入 Final Championship。
 
-### 2.5 Final Championship
+### 2.4 Final Championship
 
 - **功能**：單一賽季的最終定案賽事，決定該 Season 的 APEX 冠軍與勢力格局變化。
 - **參加條件**：World Tour 積分排名前段的 Driver/Team，以及該 Season 內罕見授予的
   Comeback 或 Wild Card 資格保有者。
 - **結果**：冠軍產出、Season 的 Canon State 產生重大變化（見 `CANON_STATE_MODEL.md`），
   並直接影響下一 Season 的 Beginning State。
+
+### 2.5 Underground Circuits — Side Competition Network
+
+- **定位**：Underground Circuits 是全季平行運行的 Side Competition Network，
+  不是 APEX main competition hierarchy 的必經層級，任何時間點都可以參與或不參與，
+  詳見 `DC2100_STORY_BIBLE_V1.md` 第 13.4 節 Locked Decision。
+- **功能**：作為技術磨練場、Evidence 累積管道、Reserve 候選人的實力驗證場，
+  以及 Comeback 代價的其中一種完成方式。
+- **參加條件**：任何未被 `DISQUALIFIED` 的 Driver/Team，包括 `RESERVE`、
+  `COMEBACK_PENDING` 名單，以及主動選擇以地下路線證明自己的參賽者。
+- **允許的輸出（Underground Circuit 的結果只能產生以下提案，不得產生其他效果）**：
+  - new evidence（新的 Evidence，供 Gate 1 審核參考）
+  - `WILD_CARD_ELIGIBLE` proposal（成為 Wild Card 候選提案，非直接授予）
+  - `COMEBACK` requirement completion（作為 Comeback 代價完成的證明之一，
+    非直接授予 `COMEBACK_GRANTED`）
+  - Regional Qualifier re-entry proposal（重新進入 Regional Qualifiers 的提案）
+  - World Tour entry proposal where rules explicitly allow it（僅在本文件
+    明確允許之處，作為 World Tour 資格提案的輸入之一）
+- **強制限制**：Underground Circuits 的任何結果都**不得**自動授予 `QUALIFIED`、
+  `WILD_CARD_GRANTED` 或 `COMEBACK_GRANTED` 等正式資格，也**不得**讓參賽者
+  跳過 `CANON_STATE_MODEL.md` 定義的任何 Human Gate。所有正式資格變更一律
+  遵循該文件第 5 節的 `PROPOSED_STATE_CHANGE → Gate 7 → CANON_STATE_COMMITTED` 流程。
 
 ---
 
@@ -156,8 +182,16 @@ APEX 允許多元動力形式與科技輔助，但規則必須產生公平且可
 - **AI Assistance**：允許有限度使用（導航建議、基礎防滑輔助），
   禁止全自主駕駛替代人類操作（對應 `DC2100_STORY_BIBLE_V1.md` 第 6.1 節）。
 - **Neural Assistance**：允許，但須向 Organizers 申報使用等級；未申報使用視為違規。
-- **Vehicle Weight**：每個 Race Format 設定重量分級（見第 5 節），超重車輛須申報並接受配重限制。
-- **Power**：無絕對動力上限，但超出所屬分級標準的車輛須申報並接受配重或起跑順位懲罰。
+- **Vehicle Weight / Power-to-Weight**：每個 Race Format（見第 5 節）公告該賽事的
+  class 或 power-to-weight 門檻，而非單一重量上限：
+  - 低於門檻重量或動力超出門檻比例的車輛（underweight or overpowered），
+    可被要求加裝 ballast（配重）、接受動力輸出上限限制，或接受起跑順位懲罰。
+  - 超出門檻重量的車輛（overweight），可被移至另一個 class 分級參賽，
+    或依其重量接受對應的路線與煞車距離分級要求（route / braking-distance
+    classification requirements）。
+  - 重量本身不構成違規；**單純的高重量不得被描述為需要額外配重**——
+    配重只適用於 underweight or overpowered 的車輛，用來抵銷其相對優勢，
+    而非用來懲罰重量本身。
 - **Armor**：允許防護性裝甲，禁止以裝甲名義加裝任何具攻擊性的結構。
 - **Repair**：允許賽事間與賽段間維修，維修時間計入 Repair Time 資源（見 Story Bible 第 7 節）。
 - **Replacement Parts**：允許使用非原廠零件，但須可追溯來源，禁止使用來源不明的黑市零件
@@ -216,7 +250,11 @@ Driver、Team 或 Vehicle 在任一賽事層級的狀態必須是以下九種之
 - `WILD_CARD_GRANTED` — Wild Card 審核通過，取得晉級資格。
 - `COMEBACK_PENDING` — 已提出 Comeback 申請，代價尚未完成（見第 10 節）。
 - `COMEBACK_GRANTED` — Comeback 代價已完成並經審核通過，重新取得參賽資格。
-- `DISQUALIFIED` — 因違規被取消資格（見第 11 節），不得以 Reserve 或 Wild Card 恢復。
+- `DISQUALIFIED` — 因違規被取消資格（見第 11 節）。同一 Season 內不得以 Reserve、
+  Wild Card、Comeback 或任何形式恢復或重新報名。未來 Season 可在完成處分、申訴或
+  重新資格條件後，以全新的 `DISCOVERED` Candidate 身分重新申請，並依序經過
+  Gate 1 與 Gate 7；原 `DISQUALIFIED` 歷史紀錄永久保留（見
+  `DC2100_STORY_BIBLE_V1.md` 第 13.3 節 Locked Decision）。
 - `WITHDRAWN` — 主動退出，不視為淘汰，未來 Season 可重新報名。
 
 以上狀態與 `CANON_STATE_MODEL.md` 第 2 節 State Vocabulary 的對應關係：
@@ -227,18 +265,23 @@ Driver、Team 或 Vehicle 在任一賽事層級的狀態必須是以下九種之
 
 ## 8. Reserve
 
-- **如何進入 Reserve**：在 QUALIFIER_FAILED 判定後，若 Evidence 顯示表現接近晉級門檻，
-  或具備高度故事潛力（依 Fusion Candidate 或 Story Direction 提案），
-  由 Organizers 標記為 RESERVE，須經 Gate 1（Candidate Selection）人工確認。
-- **Reserve 有什麼權利**：可參加 Underground Circuits，累積新的 Evidence；
-  可被列入下一次名額釋出時的優先候補名單。
+Reserve 的核准分成兩個明確分開的 Gate，不得合併或省略：
+
+- **Gate 1（候選確認）**：在 QUALIFIER_FAILED 判定後，若 Evidence 顯示表現接近
+  晉級門檻，或具備高度故事潛力（依 Fusion Candidate 或 Story Direction 提案），
+  Gate 1 只核准「某 Candidate 值得成為 Reserve 候選」，此時該 Candidate 產生的是
+  `PROPOSED_STATE_CHANGE`，尚非正式 `RESERVE` 狀態。
+- **Gate 7（正式寫入）**：只有經 Gate 7 — Canon State Commit 核准後，
+  才正式寫入 `RESERVE` 狀態，成為 `CANON_STATE_COMMITTED`。
+- **Reserve 有什麼權利**：可參加 Underground Circuits（見第 2.5 節），
+  累積新的 Evidence；可被列入下一次名額釋出時的優先候補名單。
 - **何時可以替補**：僅當已 QUALIFIED 名單中出現 WITHDRAWN 或 DISQUALIFIED 時，
   依 Reserve 名單順位遞補；不得無故插隊。
 - **是否保留積分**：Reserve 狀態不保留原賽事積分，遞補後以新賽事積分重新計算，
   但保留原賽事的 Evidence 記錄供故事延續使用。
-- **如何避免 Reserve 變成任意復活**：Reserve 遞補必須滿足「名額真實空缺」與
-  「Evidence 支持」兩個條件，且每次遞補都必須經過 Gate 7（Canon State Commit）人工核准，
-  不存在自動遞補機制。
+- **如何避免 Reserve 變成任意復活**：Reserve 遞補至 `QUALIFIER_ENTERED` 必須
+  再次通過 Gate 7 核准，滿足「名額真實空缺」與「Evidence 支持」兩個條件，
+  不存在自動遞補機制。與 `CANON_STATE_MODEL.md` 第 2 節 `RESERVE` 狀態定義完全一致。
 
 ---
 

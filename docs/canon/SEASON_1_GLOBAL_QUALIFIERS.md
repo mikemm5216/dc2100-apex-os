@@ -346,12 +346,28 @@ Season 1 結束時，以下狀態必須已經改變：
 - **act**：Act III — First Qualified Field and Dome Intervention
 - **title**：The Regional Reckoning
 - **setup**：REGION_NORTH_AMERICA 舉行本屆 Regional Qualifiers 的 Elimination Race 決賽。
-- **conflict**：CANDIDATE_SLOT_14（COMEBACK_PENDING）依約公開挑戰
-  一名現任 QUALIFIED 車手，賽事結果將決定其能否完成 Comeback。
+  現任席位持有者 CANDIDATE_SLOT_15 與 COMEBACK_PENDING 候選人 CANDIDATE_SLOT_14
+  正式進入依約指定的公開挑戰賽段（Comeback 公開挑戰代價，見
+  `APEX_RULES_V1.md` 第 10 節）。
+- **conflict**：這場挑戰賽段的結果將同時決定 CANDIDATE_SLOT_14 能否完成 Comeback
+  代價，以及 CANDIDATE_SLOT_15 是否保有現有席位。
 - **decision**：CANDIDATE_SLOT_14 在資源劣勢下選擇高風險策略而非保守完賽。
-- **consequence**：CANDIDATE_SLOT_14 勝出，正式完成 Comeback 代價。
-- **canon state change**：CANDIDATE_SLOT_14 → `COMEBACK_GRANTED`；
-  原 QUALIFIED 車手 → 視賽事規則轉入 `RESERVE`（依 Elimination Race 規則）。
+- **consequence**：CANDIDATE_SLOT_14 在本次挑戰賽段勝出。
+- **canon state change**（合法事件序列，過去的歷史事件不可刪除或覆寫）：
+  1. CANDIDATE_SLOT_14 與 CANDIDATE_SLOT_15 正式進入本次 challenge stage，
+     雙方皆 → `QUALIFIER_ENTERED`（CANDIDATE_SLOT_15 先前已取得的
+     `QUALIFIER_PASSED` 歷史事件不受影響、永久保留）。
+  2. Challenge 賽事依 Scoring 判定結果：CANDIDATE_SLOT_14 →
+     `QUALIFIER_PASSED`（作為完成 Comeback 代價的具體 Evidence）；
+     CANDIDATE_SLOT_15 → `QUALIFIER_FAILED`（僅代表本次 challenge stage 的
+     結果，不抹除其先前的 `QUALIFIER_PASSED` 歷史事件）。
+  3. CANDIDATE_SLOT_14 的 `QUALIFIER_PASSED` Evidence 連同其既有的
+     `COMEBACK_PENDING` 提案，經 Gate 7 核准後 → `COMEBACK_GRANTED`。
+  4. CANDIDATE_SLOT_15 的 `QUALIFIER_FAILED` 只建立「是否進入 Reserve」的
+     `PROPOSED_STATE_CHANGE`；必須先經 Gate 1（Candidate Selection）確認具備
+     Reserve 資格，再經 Gate 7（Canon State Commit）正式核准後，才轉為
+     `RESERVE`。本 Beat 本身不直接完成此核准，留待後續 Gate 7 batch commit
+     階段處理（`QUALIFIED` 與 `RESERVE` 之間不存在直接轉換）。
 - **candidate slots involved**：CANDIDATE_SLOT_14、CANDIDATE_SLOT_15。
 - **suitable short formats**：High-stakes showdown、Payoff-driven climax edit。
 - **long-form assembly role**：作為 Regional Compilation（North America）的高潮收尾。
@@ -392,8 +408,11 @@ Season 1 結束時，以下狀態必須已經改變：
 - **consequence**：Season 1 核心戲劇問題保持開放，World Tour 成為
   Season 2 的直接戰場。
 - **canon state change**：全部八個 Region Slot → `REGION_UNLOCKED`
-  （擴大至 World Tour 層級）；第一批 CANDIDATE_SLOT（依各 Region 決賽結果）
-  → `QUALIFIED`；至少一組 → `RESERVE`；至少一組 → `WILD_CARD_ELIGIBLE`。
+  （擴大至 World Tour 層級）。依各 Region 決賽結果，分屬不同 Candidate Slot 的
+  三組獨立結果各自成立（同一 Candidate Slot 不會同時屬於一組以上）：
+  第一組 Candidate Slot → `QUALIFIED`；另一組原本 `QUALIFIER_FAILED` 的
+  Candidate Slot，經 Gate 1 與 Gate 7 → `RESERVE`；再另一組
+  Candidate Slot → `WILD_CARD_ELIGIBLE`。
 - **candidate slots involved**：全部 CANDIDATE_SLOT_01 至 CANDIDATE_SLOT_15。
 - **suitable short formats**：Season-finale montage、Forward-looking cliffhanger。
 - **long-form assembly role**：作為 Season Finale 長片的收尾章節，

@@ -23,7 +23,7 @@ EV 定位、APEX 分層、Resource Conflict 系統、政治諷刺邊界、國家
 車手規則、Canon 變更規則），本文件必須維持一致，只做細節擴充。
 
 任何未來的 Story Direction、Outline 或 Script Pipeline，在生成內容前都必須讀取本文件。
-本文件的權威順序低於 `CANON.md` 的第 13 節「Canon Priority」——若兩者出現字面衝突，
+本文件的權威順序低於 `CANON.md` — Canon Priority 章節——若兩者出現字面衝突，
 以 `CANON.md` 為準，並應立即提交 Michael 審查以修正本文件。
 
 ---
@@ -434,8 +434,13 @@ APEX 第一代因不明原因消失——官方說法是「資源濫用導致的
 8. 不得將真實品牌或真實人物寫成 DC 2100 的官方合作方。
 9. Era IX「The Silence」的真相必須保持模糊,不得被單一內容一次性定案。
 10. 六大 Faction（第 5 節）的核心 goal 與 internal contradiction 不得被單一 Short 逆轉。
-11. APEX 的六層晉級架構（見 `APEX_RULES_V1.md` 第 2 節）必須維持存在。
+11. APEX main competition hierarchy（Global Qualifiers → Regional Qualifiers →
+    APEX World Tour → Final Championship）與 Underground Circuits 作為其
+    parallel pathway 的定位（見 `APEX_RULES_V1.md` 第 2 節）必須維持存在，
+    不得改回線性的多層晉級架構。
 12. Resource System（第 7 節）列出的稀缺資源類別不得被單一科技突破全面解決。
+13. 第 13 節 Locked Decisions 列出的四項 Michael 決策，在其各自的適用範圍內
+    具有最高優先權，任何其他章節若與之衝突，以第 13 節為準。
 
 ---
 
@@ -471,3 +476,59 @@ APEX 第一代因不明原因消失——官方說法是「資源濫用導致的
 6. **免責聲明不能取代原創化**：在內容中加註「純屬虛構」或類似免責聲明,
    不能作為使用真實品牌、真人肖像或受著作權保護角色設計的替代方案;
    原創化本身是強制要求,免責聲明只是附加的透明度措施。
+
+---
+
+## 13. Locked Decisions
+
+本節記錄 Michael 對四項核心設計問題的正式決策（approved_by: michael，
+approved_at: 2026-07-14）。這些決策具有最高優先權：本文件、`APEX_RULES_V1.md`、
+`SEASON_1_GLOBAL_QUALIFIERS.md`、`CANON_STATE_MODEL.md` 四份文件中任何與本節
+衝突的敘述，一律以本節為準，並視為需要修正的文件錯誤。
+
+### 13.1 LOCKED_DECISION_ERA_IX — Era IX「The Silence」揭露邊界
+
+- Season 1 只能揭露 fragmentary（殘缺、不完整）的證據。
+- 不得將 Dome Authority 正式認定為 Era IX 事件的唯一責任方；證據可以指向
+  Dome 的嫌疑，但不得升級為定案的事實陳述。
+- 真相可以跨越多個 Season 逐步揭露，揭露的速度與角度屬於 Dynamic Canon
+  （見第 11 節）。
+- 任何單一 Short、Outline 或 Script 都不得對 Era IX 真相做出最終定案。
+
+### 13.2 LOCKED_DECISION_DOME_EUROPE_ONLY — Dome Authority 在 Season 1 的介入範圍
+
+- Season 1 內，Dome Authority 只取得 `REGION_EUROPE` 的 infrastructure safety
+  review authority（基礎設施安全審查權）。
+- 明確排除：
+  - no scoring authority（對 `APEX_RULES_V1.md` 第 6 節 Scoring 無任何權限）
+  - no race-result authority（對比賽結果無任何權限）
+  - no authority over other regions（對其餘七個 Region Slot 沒有權限）
+- 任何擴大介入範圍的提案，必須先成立新的 `PROPOSED_STATE_CHANGE`，
+  並經 Gate 7 — Canon State Commit 核准後才能生效（見 `CANON_STATE_MODEL.md` 第 5 節）。
+
+### 13.3 LOCKED_DECISION_DISQUALIFIED_LIFECYCLE — DISQUALIFIED 實體的長期規則
+
+同一 Season 內：
+
+- no Reserve
+- no Wild Card
+- no Comeback
+- no re-entry（不得以任何形式重新進入本 Season 賽事）
+
+跨 Season：
+
+- 該實體可在完成處分、申訴或重新資格條件後，以全新的 `DISCOVERED` Candidate
+  身分重新申請進入未來 Season。
+- 重新申請必須依序經過 Gate 1（Candidate Selection）與 Gate 7
+  （Canon State Commit），不得跳過任一 Gate。
+- 原本的 `DISQUALIFIED` 歷史紀錄永久保留，不因重新申請而被刪除、修改或掩蓋
+  （呼應 `CANON_STATE_MODEL.md` 第 4 節「只增不改」原則）。
+
+### 13.4 LOCKED_DECISION_UNDERGROUND_PARALLEL — Underground Circuits 定位
+
+Underground Circuits 採用 **Side Competition Network（平行路徑）** 定位，
+與 APEX main competition hierarchy（Global Qualifiers → Regional Qualifiers →
+APEX World Tour → Final Championship）並行運作，不是主線必經的線性晉級層級。
+Underground Circuits 的結果只能產生 Evidence、Wild Card 提案、Comeback 代價
+完成證明或重新報名/晉級提案，不得自動授予資格或讓參賽者跳過 Human Gate。
+完整規則見 `APEX_RULES_V1.md` 第 2 節。
