@@ -69,6 +69,7 @@ function createMockStoryPool(initialRows, { directions = [], outlines = [] } = {
     directions: new Map(directions.map(row => [row.id, { ...row }])),
     outlines: new Map(outlines.map(row => [row.id, { ...row }])),
     scripts: new Map(),
+    attempts: [],
     events: [],
     nextDirectionId: 1000,
     nextOutlineId: 2000,
@@ -84,6 +85,7 @@ function createMockStoryPool(initialRows, { directions = [], outlines = [] } = {
       directions: new Map([...state.directions].map(([k, v]) => [k, { ...v }])),
       outlines: new Map([...state.outlines].map(([k, v]) => [k, { ...v }])),
       scripts: new Map([...state.scripts].map(([k, v]) => [k, { ...v }])),
+      attempts: state.attempts.map(row => ({ ...row })),
       events: state.events.map(e => ({ ...e }))
     };
   }
@@ -108,6 +110,7 @@ function createMockStoryPool(initialRows, { directions = [], outlines = [] } = {
         state.directions = snapshot.directions;
         state.outlines = snapshot.outlines;
         state.scripts = snapshot.scripts;
+        state.attempts = snapshot.attempts;
         state.events = snapshot.events;
         snapshot = null;
       }
@@ -441,7 +444,26 @@ function createMockStoryPool(initialRows, { directions = [], outlines = [] } = {
     }
 
     if (trimmed.startsWith("INSERT INTO story_generation_attempts")) {
+      state.attempts.push({ values: [...values] });
       return { rows: [], rowCount: 1 };
+    }
+
+    if (
+      trimmed.includes("UPDATE story_pipeline_runs") &&
+      trimmed.includes("status = $2") &&
+      trimmed.includes("failure_stage = $4")
+    ) {
+      const [runId, status, currentStage, failureStage, errorCode, errorMessage] = values;
+      const row = state.runs.get(Number(runId));
+      row.status = status;
+      row.current_stage = currentStage;
+      row.failure_stage = failureStage;
+      row.error_code = errorCode;
+      row.error_message = errorMessage;
+      row.worker_id = null;
+      row.lease_expires_at = null;
+      row.updated_at = new Date();
+      return { rows: [{ ...row }], rowCount: 1 };
     }
 
     // ------------------ post-generation run advance (AWAITING_*) ------------------
@@ -928,7 +950,7 @@ async function run() {
         fusion_candidate_id: "1",
         vehicle: { id: "1", code: "VH-1", name: "Test Vehicle" },
         country: { id: "1", code: "US", name: "United States" },
-        country_news: { id: "10", title: "News", url: "https://example.com" },
+        country_news: null,
         person: null,
         vehicle_person_link: null,
         historical_resonance: null,
@@ -981,16 +1003,29 @@ async function run() {
     state_model: "state model"
   };
 
-  function makeDirectionPayload(type) {
+  // Task 3.5E: executeDirectionsGeneration now calls deps.generateJson
+  // once PER direction (DIRECTIONS_PER_BATCH times), not once for
+  // the whole batch (Gemini's structured-output engine rejects the
+  // per-direction schema wrapped in an array once minItems/maxItems
+  // >= 3 -- see the DIRECTIONS_PER_BATCH comment in engine.js). This
+  // fixture returns ONE direction payload per mocked call.
+  function makeDirectionPayload(emphasis) {
     return {
-      direction_key: `DIRECTION-${type}`,
-      direction_type: type,
+      direction_id: `DIR-${emphasis}`,
+      direction_type: "INTEGRATED_STORY",
+      narrative_emphasis: emphasis,
       title: "T",
       review_summary: "s",
       hook: "h",
       logline: "l",
       core_conflict: "c",
       why_now: "w",
+      signal_contributions: {
+        vehicle: { evidence_refs: ["vehicle:1"], story_function: "grounds the vehicle engineering constraint", preserved_traits: [], transformed_traits: [] },
+        country: { country_signal: "NOT_AVAILABLE" },
+        person: { person_signal: "NOT_AVAILABLE", historical_resonance: "NOT_AVAILABLE" },
+        apex: { beat_id: "BEAT-01", stage: "GLOBAL_QUALIFIERS", rule_used: "manual override qualification rule", qualification_objective: "enter the qualifier under inspection", failure_condition: "the entry is rejected when inspection detects automation", resource_or_scoring_constraint: "one manual override is available" }
+      },
       vehicle_transformation: {
         evidence_vehicle: "Real Car",
         canon_vehicle_name: "Fictional Vehicle",
@@ -1002,24 +1037,76 @@ async function run() {
         canon_driver_name: "Fictional Driver",
         canon_team_name: "Fictional Team",
         motivation: "m",
-        internal_conflict: "i"
+        internal_conflict: "i",
+        person_signal_influence: "p"
       },
-      evidence_refs: ["vehicle:1"],
+      causal_chain: ["external pressure changes access", "inspection constrains vehicle setup", "the driver chooses a manual response", "the APEX rule creates a sacrifice", "the qualifier result changes the season"],
+      driver_choice: {
+        option_a: "accept the restricted setup",
+        option_b: "risk the manual override",
+        immediate_consequence: "inspection scrutiny increases",
+        long_term_cost: "the vehicle loses its automation advantage"
+      },
       canon_connections: [],
       season_function: "sf",
-      beat_connection: "bc",
       proposed_state_changes: [],
-      risk_flags: []
+      next_episode_hook: "hook",
+      risk_flags: [],
+      coverage_status: {
+        vehicle_signal: "USED",
+        country_signal: "NOT_AVAILABLE",
+        person_signal: "NOT_AVAILABLE",
+        historical_resonance: "NOT_AVAILABLE",
+        apex_rules: "USED",
+        locked_beat: "MATCH"
+      }
     };
   }
 
-  function fourDirections() {
-    return [
-      makeDirectionPayload("VEHICLE_POWER"),
-      makeDirectionPayload("COUNTRY_CONFLICT"),
-      makeDirectionPayload("PERSON_CULTURE"),
-      makeDirectionPayload("APEX_PROGRESSION")
-    ];
+  function regressionRunRow(overrides = {}) {
+    return baseRunRow({
+      beat_id: "BEAT-04",
+      candidate_snapshot: {
+        fusion_candidate_id: "regression-candidate",
+        vehicle: { id: "9", code: "VH-9", name: "Regression Vehicle" },
+        country: { id: "1", code: "JP", name: "Japan" },
+        country_news: { id: "413", title: "Regression country signal" },
+        person: { id: "13", canonical_name: "Keiichi Tsuchiya" },
+        historical_resonance: { id: "13" },
+        no_person_signal: false,
+        evidence: [
+          { id: "vehicle:9", type: "VEHICLE" },
+          { id: "country_news:413", type: "COUNTRY_NEWS" },
+          { id: "person:13", type: "PERSON" },
+          { id: "historical_resonance:13", type: "HISTORICAL_RESONANCE" }
+        ]
+      },
+      ...overrides
+    });
+  }
+
+  function makeRegressionDirection() {
+    const direction = makeDirectionPayload("TECHNICAL_SACRIFICE");
+    direction.signal_contributions.vehicle.evidence_refs = ["vehicle:9"];
+    direction.signal_contributions.country = {
+      evidence_refs: ["country_news:413"],
+      story_function: "changes the qualifier access conditions",
+      dc2100_pressure: "public scrutiny forces a restricted inspection route",
+      direct_effect_on_story: "the inspection schedule removes the automated setup window"
+    };
+    direction.signal_contributions.person = {
+      evidence_refs: ["person:13", "historical_resonance:13"],
+      story_function: "shapes the fictional driver's manual-control philosophy",
+      fictionalized_trait: "an old-school instinct that distrusts full automation",
+      historical_resonance_used: "historical_resonance:13"
+    };
+    direction.signal_contributions.apex.beat_id = "BEAT-04";
+    direction.character_concept.person_signal_influence =
+      "a fictional manual-control philosophy shaped by historical racing craft";
+    direction.coverage_status.country_signal = "USED";
+    direction.coverage_status.person_signal = "USED";
+    direction.coverage_status.historical_resonance = "USED";
+    return direction;
   }
 
   // =========================================================
@@ -1196,7 +1283,7 @@ async function run() {
       {
         loadCanonBundle: () => FAKE_CANON_BUNDLE,
         generateJson: async () => ({
-          data: fourDirections(),
+          data: makeDirectionPayload("TECHNICAL_SACRIFICE"),
           provider: "gemini",
           model: "test-model",
           inputTokens: 1,
@@ -1422,7 +1509,7 @@ async function run() {
         await cancelRun(pool, 1, { reason: "no longer needed" });
 
         return {
-          data: fourDirections(),
+          data: makeDirectionPayload("TECHNICAL_SACRIFICE"),
           provider: "gemini",
           model: "test-model",
           inputTokens: 1,
@@ -1457,7 +1544,7 @@ async function run() {
         row.lease_expires_at = new Date(Date.now() + 300000);
 
         return {
-          data: fourDirections(),
+          data: makeDirectionPayload("TECHNICAL_SACRIFICE"),
           provider: "gemini",
           model: "test-model",
           inputTokens: 1,
@@ -1491,7 +1578,7 @@ async function run() {
         row.worker_id = "worker-b";
         row.lease_expires_at = new Date(Date.now() + 300000);
         return {
-          data: fourDirections(),
+          data: makeDirectionPayload("TECHNICAL_SACRIFICE"),
           provider: "gemini",
           model: "test-model",
           inputTokens: 1, outputTokens: 1, totalTokens: 2, latencyMs: 10
@@ -1506,7 +1593,7 @@ async function run() {
     const result = await executeDirectionsGeneration(pool, freshRun, {
       loadCanonBundle: () => FAKE_CANON_BUNDLE,
       generateJson: async () => ({
-        data: fourDirections(),
+        data: makeDirectionPayload("TECHNICAL_SACRIFICE"),
         provider: "gemini",
         model: "test-model",
         inputTokens: 1, outputTokens: 1, totalTokens: 2, latencyMs: 10
@@ -1548,7 +1635,7 @@ async function run() {
         row.status = "CANCELLED";
         row.worker_id = null;
         return {
-          data: fourDirections(),
+          data: makeDirectionPayload("TECHNICAL_SACRIFICE"),
           provider: "gemini",
           model: "test-model",
           inputTokens: 1, outputTokens: 1, totalTokens: 2, latencyMs: 10
@@ -1557,6 +1644,150 @@ async function run() {
     });
 
     assert.equal(insertAttemptsCalls, 0);
+  }
+
+  // Successful persist writes artifacts + generation attempt +
+  // event + status transition atomically (all present together).
+  {
+    const pool = createMockStoryPool([
+      regressionRunRow({ status: "GENERATING_DIRECTIONS" })
+    ]);
+    const providerInputs = [];
+    let call = 0;
+
+    const result = await executeDirectionsGeneration(
+      pool,
+      pool._state.runs.get(1),
+      {
+        loadCanonBundle: () => FAKE_CANON_BUNDLE,
+        generateJson: async ({ input }) => {
+          providerInputs.push(input);
+          call += 1;
+          const data = makeRegressionDirection();
+
+          if (call === 1) {
+            data.proposed_state_changes = [{
+              state: "PROPOSED_STATE_CHANGE",
+              previous_state: "CANDIDATE_APPROVED",
+              target_state: "QUALIFIER_PASSED",
+              entity_type: "DRIVER",
+              reason: "skips the required qualifier entry",
+              evidence_refs: ["vehicle:9"]
+            }];
+          } else if (call === 2) {
+            data.signal_contributions.vehicle.evidence_refs = ["vehicle:999"];
+          }
+
+          return {
+            data,
+            provider: "gemini",
+            model: "test-model",
+            inputTokens: 10,
+            outputTokens: 5,
+            totalTokens: 15,
+            latencyMs: 20
+          };
+        }
+      }
+    );
+
+    assert.equal(result.run.status, "AWAITING_DIRECTION_SELECTION");
+    assert.equal(call, 6);
+    assert.equal(providerInputs[0].locked_beat_id, "BEAT-04");
+    assert.deepEqual(providerInputs[1].allowed_next_states, ["QUALIFIER_ENTERED"]);
+    assert.equal(providerInputs[1].retry_feedback.previous_attempt_failed, true);
+    assert.ok(
+      providerInputs[1].retry_feedback.validation_issues.some(
+        issue => issue.code === "STATE_TRANSITION_INVALID"
+      )
+    );
+    assert.deepEqual(providerInputs[2].allowed_evidence_refs, [
+      "country_news:413",
+      "historical_resonance:13",
+      "person:13",
+      "vehicle:9"
+    ]);
+    assert.ok(
+      providerInputs[2].retry_feedback.validation_issues.some(
+        issue => issue.code === "EVIDENCE_REF_NOT_FOUND"
+      )
+    );
+    assert.equal(providerInputs.every(input => input.locked_beat_id === "BEAT-04"), true);
+    assert.equal(pool._state.attempts.length, 6);
+    assert.equal(pool._state.attempts[0].values[16], "DIR-001");
+    assert.equal(pool._state.attempts[0].values[17], "BLOCKED");
+    assert.equal(pool._state.attempts[2].values[17], "PASS");
+    console.log("FORMAL ENGINE REGRESSION ATTEMPTS");
+    for (const row of pool._state.attempts) {
+      console.log(JSON.stringify({
+        direction_key: row.values[16],
+        attempt_number: row.values[12],
+        validation_status: row.values[17],
+        issue_codes: JSON.parse(row.values[18]),
+        evidence_refs: JSON.parse(row.values[19]),
+        beat_id: row.values[20],
+        state_transition: JSON.parse(row.values[21]),
+        input_tokens: row.values[8],
+        output_tokens: row.values[9],
+        total_tokens: row.values[10],
+        latency_ms: row.values[11]
+      }));
+    }
+    console.log(JSON.stringify({
+      total_tokens: 90,
+      total_latency_ms: 120,
+      retry_tokens: 30,
+      final_valid_direction_count: 4,
+      tokens_per_valid_direction: 23
+    }));
+  }
+
+  // Three validator-guided attempts per direction still fail closed:
+  // artifacts remain BLOCKED and the run exposes NO_SELECTABLE_DIRECTION.
+  {
+    const pool = createMockStoryPool([
+      baseRunRow({ status: "GENERATING_DIRECTIONS" })
+    ]);
+    let call = 0;
+
+    const result = await executeDirectionsGeneration(
+      pool,
+      pool._state.runs.get(1),
+      {
+        loadCanonBundle: () => FAKE_CANON_BUNDLE,
+        generateJson: async () => {
+          call += 1;
+          const data = makeDirectionPayload("TECHNICAL_SACRIFICE");
+          data.proposed_state_changes = [{
+            state: "PROPOSED_STATE_CHANGE",
+            previous_state: "CANDIDATE_APPROVED",
+            target_state: "QUALIFIER_PASSED",
+            entity_type: "DRIVER",
+            reason: "illegal state skip",
+            evidence_refs: ["vehicle:1"]
+          }];
+          return {
+            data,
+            provider: "gemini",
+            model: "test-model",
+            inputTokens: 10,
+            outputTokens: 5,
+            totalTokens: 15,
+            latencyMs: 20
+          };
+        }
+      }
+    );
+
+    assert.equal(call, 12);
+    assert.equal(result.run.status, "FAILED");
+    assert.equal(result.run.error_code, "NO_SELECTABLE_DIRECTION");
+    assert.equal(
+      [...pool._state.directions.values()].every(
+        direction => direction.validation_status === "BLOCKED"
+      ),
+      true
+    );
   }
 
   // Successful persist writes artifacts + generation attempt +
@@ -1572,7 +1803,7 @@ async function run() {
       {
         loadCanonBundle: () => FAKE_CANON_BUNDLE,
         generateJson: async () => ({
-          data: fourDirections(),
+          data: makeDirectionPayload("TECHNICAL_SACRIFICE"),
           provider: "gemini",
           model: "test-model",
           inputTokens: 1, outputTokens: 1, totalTokens: 2, latencyMs: 10

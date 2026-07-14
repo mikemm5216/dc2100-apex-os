@@ -733,8 +733,13 @@ function directionRow(runId, id, overrides = {}) {
     id,
     story_run_id: Number(runId),
     version: 1,
-    direction_key: `DIRECTION-${id}`,
-    direction_type: "VEHICLE_POWER",
+    direction_key: `DIR-${id}`,
+    // Task 3.5E: new rows are always INTEGRATED_STORY -- these
+    // fixtures default to the current schema so tests unrelated to
+    // the Direction schema fix (merge_notes passthrough, selection
+    // flow, etc.) exercise the happy path. Legacy-rejection is
+    // covered by its own dedicated test below.
+    direction_type: "INTEGRATED_STORY",
     payload: {},
     validation_status: "PASS",
     validation_issues: [],
@@ -1013,7 +1018,7 @@ async function run() {
 
     pool._state.runs.get(Number(runId)).status = "AWAITING_DIRECTION_SELECTION";
     pool._state.directions.set(1, directionRow(runId, 1));
-    pool._state.directions.set(2, directionRow(runId, 2, { direction_type: "COUNTRY_CONFLICT" }));
+    pool._state.directions.set(2, directionRow(runId, 2));
 
     const result = await selectDirectionHandler(pool, runId, {
       approved_by: "michael",
@@ -1048,6 +1053,42 @@ async function run() {
 
     assert.equal(result.statusCode, 422);
     assert.equal(result.payload.error, "VALIDATION_BLOCKED");
+  }
+
+  // -------------------------------------------------------
+  // Zero-selectable run exposes a domain failure, disables selection,
+  // and keeps Regenerate available instead of pretending success.
+  // -------------------------------------------------------
+  {
+    const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
+    const created = await createStoryRunHandler(pool, { fusion_candidate_id: 1 }, {});
+    const runId = created.payload.data.id;
+    const row = pool._state.runs.get(Number(runId));
+    row.status = "FAILED";
+    row.current_stage = "FAILED";
+    row.failure_stage = "DIRECTIONS";
+    row.error_code = "NO_SELECTABLE_DIRECTION";
+    row.error_message = "All directions remained BLOCKED.";
+    pool._state.directions.set(
+      1,
+      directionRow(runId, 1, {
+        validation_status: "BLOCKED",
+        validation_issues: [{ code: "STATE_TRANSITION_INVALID" }]
+      })
+    );
+
+    const detail = await getStoryRun(pool, runId);
+    assert.equal(detail.payload.data.can_select_direction, false);
+    assert.equal(detail.payload.data.can_regenerate, true);
+    assert.equal(detail.payload.data.validation_summary.directions.pass, 0);
+
+    const selection = await selectDirectionHandler(pool, runId, {
+      approved_by: "michael",
+      selected_direction_ids: [1],
+      selection_mode: "SINGLE"
+    });
+    assert.equal(selection.statusCode, 422);
+    assert.equal(selection.payload.error, "NO_SELECTABLE_DIRECTION");
   }
 
   // -------------------------------------------------------
@@ -1270,7 +1311,7 @@ async function run() {
 
     pool._state.runs.get(Number(runId)).status = "AWAITING_DIRECTION_SELECTION";
     pool._state.directions.set(1, directionRow(runId, 1));
-    pool._state.directions.set(2, directionRow(runId, 2, { direction_type: "COUNTRY_CONFLICT" }));
+    pool._state.directions.set(2, directionRow(runId, 2));
 
     const result = await selectDirectionHandler(pool, runId, {
       approved_by: "michael",
@@ -1310,7 +1351,7 @@ async function run() {
 
     pool._state.runs.get(Number(runId)).status = "AWAITING_DIRECTION_SELECTION";
     pool._state.directions.set(1, directionRow(runId, 1));
-    pool._state.directions.set(2, directionRow(runId, 2, { direction_type: "COUNTRY_CONFLICT" }));
+    pool._state.directions.set(2, directionRow(runId, 2));
 
     const mergeNotes =
       "Use direction 1 as the main conflict and direction 3 for character motivation.";
@@ -1325,6 +1366,87 @@ async function run() {
     assert.equal(result.statusCode, 200);
     assert.equal(result.payload.data.selection_mode, "MERGE");
     assert.equal(result.payload.data.merge_notes, mergeNotes);
+  }
+
+  // =========================================================
+  // Task 3.5E integration: Fusion Candidate -> Story Direction
+  // Generation -> Validation -> Gate 2 Review. Only a
+  // coverage-complete, correctly-beated (INTEGRATED_STORY)
+  // direction may ever reach Gate 2 selection -- a legacy-schema
+  // direction (generated before this fix) is rejected by the
+  // actual selection endpoint itself, not only hidden by a UI
+  // flag.
+  // =========================================================
+
+  // A legacy-schema direction can never be selected, even if its
+  // stored validation_status is PASS.
+  {
+    const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
+    const created = await createStoryRunHandler(pool, { fusion_candidate_id: 1 }, {});
+    const runId = created.payload.data.id;
+
+    pool._state.runs.get(Number(runId)).status = "AWAITING_DIRECTION_SELECTION";
+    pool._state.directions.set(
+      1,
+      directionRow(runId, 1, { direction_type: "VEHICLE_POWER" })
+    );
+
+    const result = await selectDirectionHandler(pool, runId, {
+      approved_by: "michael",
+      selected_direction_ids: [1],
+      selection_mode: "SINGLE"
+    });
+
+    assert.equal(result.statusCode, 422);
+    assert.equal(result.payload.error, "LEGACY_DIRECTION_NOT_SELECTABLE");
+    assert.deepEqual(result.payload.legacy_direction_ids, ["1"]);
+  }
+
+  // GET run detail: a legacy-schema active direction is tagged
+  // LEGACY_DIRECTION, blocks can_select_direction, and reports
+  // directions_schema_status = LEGACY_NEEDS_REGENERATE even though
+  // its stored validation_status is PASS.
+  {
+    const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
+    const created = await createStoryRunHandler(pool, { fusion_candidate_id: 1 }, {});
+    const runId = created.payload.data.id;
+
+    pool._state.runs.get(Number(runId)).status = "AWAITING_DIRECTION_SELECTION";
+    pool._state.directions.set(
+      1,
+      directionRow(runId, 1, { direction_type: "VEHICLE_POWER" })
+    );
+
+    const detail = await getStoryRun(pool, runId);
+
+    assert.equal(detail.payload.data.directions[0].direction_schema, "LEGACY_DIRECTION");
+    assert.equal(detail.payload.data.directions_schema_status, "LEGACY_NEEDS_REGENERATE");
+    assert.equal(detail.payload.data.can_select_direction, false);
+  }
+
+  // GET run detail: a current-schema (INTEGRATED_STORY) PASS
+  // direction is selectable, tagged correctly, and reports CURRENT.
+  {
+    const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
+    const created = await createStoryRunHandler(pool, { fusion_candidate_id: 1 }, {});
+    const runId = created.payload.data.id;
+
+    pool._state.runs.get(Number(runId)).status = "AWAITING_DIRECTION_SELECTION";
+    pool._state.directions.set(1, directionRow(runId, 1));
+
+    const detail = await getStoryRun(pool, runId);
+
+    assert.equal(detail.payload.data.directions[0].direction_schema, "INTEGRATED_STORY");
+    assert.equal(detail.payload.data.directions_schema_status, "CURRENT");
+    assert.equal(detail.payload.data.can_select_direction, true);
+
+    const result = await selectDirectionHandler(pool, runId, {
+      approved_by: "michael",
+      selected_direction_ids: [1],
+      selection_mode: "SINGLE"
+    });
+
+    assert.equal(result.statusCode, 200);
   }
 
   // Regenerate OUTLINE keeps merge_notes (Gate 2's decision

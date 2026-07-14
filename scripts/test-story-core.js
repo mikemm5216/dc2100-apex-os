@@ -18,6 +18,7 @@ const {
 const {
   APEX_STATE_ALLOWLIST,
   isLegalStateTransition,
+  validateDirection,
   validateDirectionBatch,
   validateOutline,
   validateScript
@@ -223,19 +224,67 @@ function run() {
     );
   }
 
-  // -------------------------------------------------------
-  // Directions: exactly one of each of the four types.
-  // -------------------------------------------------------
-  function makeDirection(type, overrides = {}) {
+  // =========================================================
+  // Task 3.5E: Integrated Story Directions -- Vehicle / Country /
+  // Person / APEX are evidence LAYERS every direction must fuse,
+  // never four mutually-exclusive topics. This fixture and the
+  // tests below use the regression candidate from production
+  // (vehicle:9 / country_news:413 / person:13 /
+  // historical_resonance:13 / BEAT-04).
+  // =========================================================
+
+  const REGRESSION_EVIDENCE_IDS = new Set([
+    "vehicle:9",
+    "country_news:413",
+    "person:13",
+    "historical_resonance:13"
+  ]);
+  const REGRESSION_LOCKED_BEAT_ID = "BEAT-04";
+  const REGRESSION_PERSON_CANONICAL_NAME = "Keiichi Tsuchiya";
+
+  function makeIntegratedDirection(emphasis, overrides = {}) {
     return {
-      direction_key: `DIRECTION-${type}`,
-      direction_type: type,
-      title: `Title for ${type}`,
+      direction_id: `DIR-${emphasis}`,
+      direction_type: "INTEGRATED_STORY",
+      narrative_emphasis: emphasis,
+      title: `Title for ${emphasis}`,
       review_summary: "review",
       hook: "hook",
       logline: "logline",
       core_conflict: "conflict",
       why_now: "why now",
+      signal_contributions: {
+        vehicle: {
+          evidence_refs: ["vehicle:9"],
+          story_function: "grounds the technical stakes",
+          preserved_traits: ["speed"],
+          transformed_traits: ["color"]
+        },
+        country: {
+          evidence_refs: ["country_news:413"],
+          story_function: "raises the external pressure",
+          dc2100_pressure: "new intelligence agency scrutiny",
+          direct_effect_on_story:
+            "the agency's monitoring forces a change to the qualifying route and inspection schedule"
+        },
+        person: {
+          evidence_refs: ["person:13", "historical_resonance:13"],
+          story_function: "shapes the driver's instinct",
+          fictionalized_trait:
+            "an old-school drift lineage that distrusts full AI automation",
+          historical_resonance_used: "historical_resonance:13"
+        },
+        apex: {
+          beat_id: REGRESSION_LOCKED_BEAT_ID,
+          stage: "GLOBAL_QUALIFIERS",
+          rule_used: "manual override qualification rule",
+          qualification_objective:
+            "finish the qualifying stage within the time limit",
+          failure_condition:
+            "running out of reserved energy before the finish disqualifies the entrant",
+          resource_or_scoring_constraint: "battery reserve budget"
+        }
+      },
       vehicle_transformation: {
         evidence_vehicle: "Real Car X",
         canon_vehicle_name: "Fictional Vehicle Prime",
@@ -247,49 +296,352 @@ function run() {
         canon_driver_name: "Fictional Driver Name",
         canon_team_name: "Fictional Team Name",
         motivation: "motivation",
-        internal_conflict: "internal conflict"
+        internal_conflict: "internal conflict",
+        person_signal_influence:
+          "draws his refusal to fully trust AI steering from the historical drift lineage"
       },
-      evidence_refs: ["vehicle:1"],
-      canon_connections: [],
+      causal_chain: [
+        "the intelligence agency tightens surveillance on manual overrides across the qualifiers",
+        "this forces the team to hide the drift-lock override from routine inspection",
+        "the vehicle's technical limit means the override can only be used once per stage",
+        "the driver draws on his heritage drift instinct to decide when to risk it",
+        "this produces a concrete APEX qualifying choice under the resource constraint",
+        "the qualifier result and a Canon state change follow from that choice"
+      ],
+      driver_choice: {
+        option_a: "burn the override now to win the heat outright",
+        option_b: "conserve the battery reserve for the next circuit",
+        immediate_consequence: "wins now but is flagged by surveillance",
+        long_term_cost: "risks disqualification at the next stage"
+      },
       season_function: "season function",
-      beat_connection: "beat connection",
       proposed_state_changes: [],
+      next_episode_hook: "hook",
       risk_flags: [],
+      canon_connections: [],
+      coverage_status: {
+        vehicle_signal: "USED",
+        country_signal: "USED",
+        person_signal: "USED",
+        historical_resonance: "USED",
+        apex_rules: "USED",
+        locked_beat: "MATCH"
+      },
       ...overrides
     };
   }
 
+  const REGRESSION_CONTEXT = {
+    evidenceIds: REGRESSION_EVIDENCE_IDS,
+    hasCountrySignal: true,
+    noPersonSignal: false,
+    personCanonicalName: REGRESSION_PERSON_CANONICAL_NAME,
+    lockedBeatId: REGRESSION_LOCKED_BEAT_ID
+  };
+
   {
     const directions = [
-      makeDirection("VEHICLE_POWER"),
-      makeDirection("COUNTRY_CONFLICT"),
-      makeDirection("PERSON_CULTURE"),
-      makeDirection("APEX_PROGRESSION")
+      makeIntegratedDirection("TECHNICAL_SACRIFICE"),
+      makeIntegratedDirection("SURVEILLANCE_TRAP"),
+      makeIntegratedDirection("CULTURAL_LEGACY"),
+      makeIntegratedDirection("RESOURCE_GAMBLE")
     ];
 
     const issues = validateDirectionBatchShape(directions);
     assert.deepEqual(issues, []);
+
+    const { batch, perDirection } = validateDirectionBatch(
+      directions,
+      REGRESSION_CONTEXT
+    );
+    assert.equal(batch.validation_status, "PASS");
+    for (const result of perDirection) {
+      assert.equal(result.validation_status, "PASS");
+    }
   }
 
   // -------------------------------------------------------
-  // Duplicate direction type rejected.
+  // Batch size: 3 is valid, 2 and 5 are rejected.
+  // -------------------------------------------------------
+  {
+    const threeDirections = [
+      makeIntegratedDirection("TECHNICAL_SACRIFICE"),
+      makeIntegratedDirection("SURVEILLANCE_TRAP"),
+      makeIntegratedDirection("CULTURAL_LEGACY")
+    ];
+    assert.deepEqual(validateDirectionBatchShape(threeDirections), []);
+
+    const twoDirections = [
+      makeIntegratedDirection("TECHNICAL_SACRIFICE"),
+      makeIntegratedDirection("SURVEILLANCE_TRAP")
+    ];
+    assert.ok(
+      validateDirectionBatchShape(twoDirections).some(
+        i => i.code === "DIRECTION_COUNT_INVALID"
+      )
+    );
+
+    const fiveDirections = [
+      makeIntegratedDirection("TECHNICAL_SACRIFICE"),
+      makeIntegratedDirection("SURVEILLANCE_TRAP"),
+      makeIntegratedDirection("CULTURAL_LEGACY"),
+      makeIntegratedDirection("RESOURCE_GAMBLE"),
+      makeIntegratedDirection("IDENTITY_CONFLICT")
+    ];
+    assert.ok(
+      validateDirectionBatchShape(fiveDirections).some(
+        i => i.code === "DIRECTION_COUNT_INVALID"
+      )
+    );
+  }
+
+  // -------------------------------------------------------
+  // Duplicate narrative_emphasis rejected.
   // -------------------------------------------------------
   {
     const directions = [
-      makeDirection("VEHICLE_POWER"),
-      makeDirection("VEHICLE_POWER"),
-      makeDirection("PERSON_CULTURE"),
-      makeDirection("APEX_PROGRESSION")
+      makeIntegratedDirection("TECHNICAL_SACRIFICE"),
+      makeIntegratedDirection("TECHNICAL_SACRIFICE"),
+      makeIntegratedDirection("CULTURAL_LEGACY")
     ];
 
     const issues = validateDirectionBatchShape(directions);
 
     assert.ok(
-      issues.some(i => i.code === "DIRECTION_TYPE_DUPLICATE")
+      issues.some(i => i.code === "NARRATIVE_EMPHASIS_DUPLICATE")
+    );
+  }
+
+  // -------------------------------------------------------
+  // Legacy direction_type value rejected by the shape validator --
+  // the four old topic-based values are never valid on a new
+  // direction.
+  // -------------------------------------------------------
+  {
+    const legacyStyle = makeIntegratedDirection("TECHNICAL_SACRIFICE", {
+      direction_type: "VEHICLE_POWER"
+    });
+
+    const issues = validateDirectionShape(legacyStyle);
+    assert.ok(issues.some(i => i.code === "DIRECTION_TYPE_INVALID"));
+  }
+
+  // =========================================================
+  // Task 3.5E Unit Tests (per the Integrated Story fix spec)
+  // =========================================================
+
+  // 1. All available signals appear in every direction (already
+  // exercised by the PASS case above); a direction that drops the
+  // Country signal while it genuinely exists is BLOCKED.
+  {
+    const direction = makeIntegratedDirection("TECHNICAL_SACRIFICE", {
+      signal_contributions: {
+        ...makeIntegratedDirection("TECHNICAL_SACRIFICE").signal_contributions,
+        country: { country_signal: "NOT_AVAILABLE" }
+      },
+      coverage_status: {
+        ...makeIntegratedDirection("TECHNICAL_SACRIFICE").coverage_status,
+        country_signal: "NOT_AVAILABLE"
+      }
+    });
+
+    const result = validateDirection(direction, REGRESSION_CONTEXT);
+    assert.equal(result.validation_status, "BLOCKED");
+    assert.ok(
+      result.issues.some(i => i.code === "INTEGRATED_COUNTRY_SIGNAL_USED")
     );
     assert.ok(
-      issues.some(i => i.code === "DIRECTION_TYPE_MISSING")
+      result.issues.some(i => i.code === "SIGNAL_COVERAGE_INCOMPLETE")
     );
+  }
+
+  // 2. locked_beat_id cannot be overwritten by the model.
+  {
+    const direction = makeIntegratedDirection("TECHNICAL_SACRIFICE");
+    direction.signal_contributions.apex.beat_id = "BEAT-05";
+
+    const result = validateDirection(direction, REGRESSION_CONTEXT);
+    assert.equal(result.validation_status, "BLOCKED");
+    assert.ok(result.issues.some(i => i.code === "LOCKED_BEAT_MATCHED"));
+  }
+
+  // 3. Country Signal must have a direct effect on the story
+  // conditions, not just background color.
+  {
+    const direction = makeIntegratedDirection("TECHNICAL_SACRIFICE");
+    direction.signal_contributions.country.direct_effect_on_story = "news happened";
+
+    const result = validateDirection(direction, REGRESSION_CONTEXT);
+    assert.equal(result.validation_status, "BLOCKED");
+    assert.ok(
+      result.issues.some(i => i.code === "COUNTRY_SIGNAL_HAS_DIRECT_EFFECT")
+    );
+  }
+
+  // 4. Person Signal must influence motivation/technical/cultural
+  // conflict, not just supply a name.
+  {
+    const direction = makeIntegratedDirection("TECHNICAL_SACRIFICE");
+    direction.character_concept.person_signal_influence = "his name";
+
+    const result = validateDirection(direction, REGRESSION_CONTEXT);
+    assert.equal(result.validation_status, "BLOCKED");
+    assert.ok(
+      result.issues.some(i => i.code === "PERSON_SIGNAL_HAS_CHARACTER_EFFECT")
+    );
+  }
+
+  // 5. APEX Rule must create a real win/lose constraint, not just a
+  // closing "so they passed the qualifier" line.
+  {
+    const direction = makeIntegratedDirection("TECHNICAL_SACRIFICE");
+    direction.signal_contributions.apex.failure_condition = "fails";
+
+    const result = validateDirection(direction, REGRESSION_CONTEXT);
+    assert.equal(result.validation_status, "BLOCKED");
+    assert.ok(
+      result.issues.some(i => i.code === "APEX_RULE_CREATES_REAL_CONSTRAINT")
+    );
+  }
+
+  // 6. Evidence refs must come from the real input -- an invented
+  // evidence id is rejected even alongside real ones.
+  {
+    const direction = makeIntegratedDirection("TECHNICAL_SACRIFICE");
+    direction.signal_contributions.country.evidence_refs.push(
+      "country_news:999999"
+    );
+
+    const result = validateDirection(direction, REGRESSION_CONTEXT);
+    assert.equal(result.validation_status, "BLOCKED");
+    assert.ok(result.issues.some(i => i.code === "EVIDENCE_REF_NOT_FOUND"));
+  }
+
+  // 7. A real person's name reused (even a single shared name
+  // element, not just an exact full-name match) is rejected.
+  {
+    const direction = makeIntegratedDirection("CULTURAL_LEGACY");
+    direction.character_concept.canon_driver_name = "Hiroshi Tsuchiya";
+
+    const result = validateDirection(direction, REGRESSION_CONTEXT);
+    assert.equal(result.validation_status, "BLOCKED");
+    assert.ok(
+      result.issues.some(i => i.code === "REAL_PERSON_FICTIONALIZATION_SAFE")
+    );
+  }
+
+  // 8. NO_PERSON_SIGNAL must never produce hallucinated person
+  // evidence -- coverage/signal_contributions must both say
+  // NOT_AVAILABLE, and using a real evidence_refs shape is rejected
+  // even if noPersonSignal claims are set correctly.
+  {
+    const noPersonContext = {
+      ...REGRESSION_CONTEXT,
+      noPersonSignal: true,
+      personCanonicalName: null
+    };
+
+    const direction = makeIntegratedDirection("TECHNICAL_SACRIFICE");
+    // Candidate has NO_PERSON_SIGNAL, but this direction still
+    // claims to use one.
+    const result = validateDirection(direction, noPersonContext);
+    assert.equal(result.validation_status, "BLOCKED");
+    assert.ok(
+      result.issues.some(i => i.code === "INTEGRATED_PERSON_SIGNAL_USED")
+    );
+
+    // The correct NOT_AVAILABLE shape must PASS the coverage check.
+    const correctDirection = makeIntegratedDirection("TECHNICAL_SACRIFICE", {
+      signal_contributions: {
+        ...makeIntegratedDirection("TECHNICAL_SACRIFICE").signal_contributions,
+        person: { person_signal: "NOT_AVAILABLE", historical_resonance: "NOT_AVAILABLE" }
+      },
+      coverage_status: {
+        ...makeIntegratedDirection("TECHNICAL_SACRIFICE").coverage_status,
+        person_signal: "NOT_AVAILABLE",
+        historical_resonance: "NOT_AVAILABLE"
+      }
+    });
+    const correctResult = validateDirection(correctDirection, noPersonContext);
+    assert.equal(correctResult.validation_status, "PASS");
+  }
+
+  // -------------------------------------------------------
+  // REGRESSION FIXTURE: the exact production candidate
+  // (vehicle:9 / country_news:413 / person:13 /
+  // historical_resonance:13 / BEAT-04) must never again produce
+  // four directions that each use only one evidence category.
+  // -------------------------------------------------------
+  {
+    // The OLD (buggy) shape: one direction per evidence category.
+    const legacyStyleBatch = [
+      makeIntegratedDirection("TECHNICAL_SACRIFICE", {
+        signal_contributions: {
+          vehicle: makeIntegratedDirection("TECHNICAL_SACRIFICE").signal_contributions.vehicle,
+          country: { country_signal: "NOT_AVAILABLE" },
+          person: { person_signal: "NOT_AVAILABLE", historical_resonance: "NOT_AVAILABLE" },
+          apex: makeIntegratedDirection("TECHNICAL_SACRIFICE").signal_contributions.apex
+        },
+        coverage_status: {
+          vehicle_signal: "USED",
+          country_signal: "NOT_AVAILABLE",
+          person_signal: "NOT_AVAILABLE",
+          historical_resonance: "NOT_AVAILABLE",
+          apex_rules: "USED",
+          locked_beat: "MATCH"
+        }
+      }),
+      makeIntegratedDirection("SURVEILLANCE_TRAP", {
+        signal_contributions: {
+          vehicle: { evidence_refs: ["vehicle:9"], story_function: "-", preserved_traits: [], transformed_traits: [] },
+          country: makeIntegratedDirection("SURVEILLANCE_TRAP").signal_contributions.country,
+          person: { person_signal: "NOT_AVAILABLE", historical_resonance: "NOT_AVAILABLE" },
+          apex: makeIntegratedDirection("SURVEILLANCE_TRAP").signal_contributions.apex
+        }
+      }),
+      makeIntegratedDirection("CULTURAL_LEGACY", {
+        signal_contributions: {
+          vehicle: { evidence_refs: ["vehicle:9"], story_function: "-", preserved_traits: [], transformed_traits: [] },
+          country: { country_signal: "NOT_AVAILABLE" },
+          person: makeIntegratedDirection("CULTURAL_LEGACY").signal_contributions.person,
+          apex: makeIntegratedDirection("CULTURAL_LEGACY").signal_contributions.apex
+        }
+      })
+    ];
+
+    const { perDirection } = validateDirectionBatch(
+      legacyStyleBatch,
+      REGRESSION_CONTEXT
+    );
+
+    // Every single-signal-style direction must be BLOCKED -- this
+    // candidate's real evidence (country_news:413, person:13,
+    // historical_resonance:13) genuinely exists, so silently
+    // dropping it to NOT_AVAILABLE is never legal.
+    for (const result of perDirection) {
+      assert.equal(
+        result.validation_status,
+        "BLOCKED",
+        "a direction using only one evidence category must never PASS for this candidate"
+      );
+    }
+
+    // The fully-integrated batch (built earlier in this file) is the
+    // only shape that legitimately passes for this candidate.
+    const integratedBatch = [
+      makeIntegratedDirection("TECHNICAL_SACRIFICE"),
+      makeIntegratedDirection("SURVEILLANCE_TRAP"),
+      makeIntegratedDirection("CULTURAL_LEGACY"),
+      makeIntegratedDirection("RESOURCE_GAMBLE")
+    ];
+    const integratedResult = validateDirectionBatch(
+      integratedBatch,
+      REGRESSION_CONTEXT
+    );
+    assert.equal(integratedResult.batch.validation_status, "PASS");
+    for (const result of integratedResult.perDirection) {
+      assert.equal(result.validation_status, "PASS");
+    }
   }
 
   // -------------------------------------------------------
@@ -777,28 +1129,30 @@ function run() {
   }
 
   // -------------------------------------------------------
-  // Real person used directly as Canon Driver rejected.
+  // Real person used directly as Canon Driver rejected (exact
+  // full-name match -- REAL_PERSON_FICTIONALIZATION_SAFE above
+  // covers the partial/surname-reuse case).
   // -------------------------------------------------------
   {
-    const direction = makeDirection("PERSON_CULTURE", {
+    const direction = makeIntegratedDirection("TECHNICAL_SACRIFICE", {
       character_concept: {
         canon_driver_name: "Real Person Name",
         canon_team_name: "Fictional Team",
         motivation: "motivation",
-        internal_conflict: "conflict"
+        internal_conflict: "conflict",
+        person_signal_influence:
+          "draws his refusal to trust AI steering from the historical drift lineage"
       }
     });
 
     const result = validateDirectionBatch(
       [
         direction,
-        makeDirection("VEHICLE_POWER"),
-        makeDirection("COUNTRY_CONFLICT"),
-        makeDirection("APEX_PROGRESSION")
+        makeIntegratedDirection("SURVEILLANCE_TRAP"),
+        makeIntegratedDirection("CULTURAL_LEGACY")
       ],
       {
-        evidenceIds: new Set(["vehicle:1"]),
-        noPersonSignal: false,
+        ...REGRESSION_CONTEXT,
         personCanonicalName: "Real Person Name"
       }
     );
@@ -815,18 +1169,17 @@ function run() {
   // Official brand partnership implied rejected.
   // -------------------------------------------------------
   {
-    const direction = makeDirection("VEHICLE_POWER", {
+    const direction = makeIntegratedDirection("TECHNICAL_SACRIFICE", {
       hook: "Built in official partnership with the manufacturer."
     });
 
     const result = validateDirectionBatch(
       [
         direction,
-        makeDirection("COUNTRY_CONFLICT"),
-        makeDirection("PERSON_CULTURE"),
-        makeDirection("APEX_PROGRESSION")
+        makeIntegratedDirection("SURVEILLANCE_TRAP"),
+        makeIntegratedDirection("CULTURAL_LEGACY")
       ],
-      { evidenceIds: new Set(["vehicle:1"]), noPersonSignal: false }
+      REGRESSION_CONTEXT
     );
 
     assert.equal(result.perDirection[0].validation_status, "BLOCKED");
@@ -869,7 +1222,7 @@ function run() {
   // `state` is missing every other required field.
   // -------------------------------------------------------
   {
-    const direction = makeDirection("VEHICLE_POWER", {
+    const direction = makeIntegratedDirection("TECHNICAL_SACRIFICE", {
       proposed_state_changes: [{ state: "PROPOSED_STATE_CHANGE" }]
     });
 
@@ -892,11 +1245,10 @@ function run() {
     const batchResult = validateDirectionBatch(
       [
         direction,
-        makeDirection("COUNTRY_CONFLICT"),
-        makeDirection("PERSON_CULTURE"),
-        makeDirection("APEX_PROGRESSION")
+        makeIntegratedDirection("SURVEILLANCE_TRAP"),
+        makeIntegratedDirection("CULTURAL_LEGACY")
       ],
-      { evidenceIds: new Set(["vehicle:1"]), noPersonSignal: false }
+      REGRESSION_CONTEXT
     );
 
     assert.equal(batchResult.perDirection[0].validation_status, "BLOCKED");
@@ -907,7 +1259,7 @@ function run() {
     const change = fullStateChange();
     delete change[field];
 
-    const direction = makeDirection("VEHICLE_POWER", {
+    const direction = makeIntegratedDirection("TECHNICAL_SACRIFICE", {
       proposed_state_changes: [change]
     });
 
@@ -925,7 +1277,7 @@ function run() {
 
   // Direction BLOCKED: evidence_refs present but not an array.
   {
-    const direction = makeDirection("VEHICLE_POWER", {
+    const direction = makeIntegratedDirection("TECHNICAL_SACRIFICE", {
       proposed_state_changes: [
         fullStateChange({ evidence_refs: "not-an-array" })
       ]

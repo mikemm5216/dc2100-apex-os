@@ -7,7 +7,7 @@ const navigation = [
   { label: "People Radar", href: "/person-radar" },
   { label: "Candidates", href: "/candidates" },
   { label: "Creative Packs", href: "/creative-packs" },
-  { label: "Generation Queue", href: "/generation-queue" },
+  { label: "Story Directions (Gate 2)", href: "/generation-queue" },
   { label: "Publish Queue", href: "/publish-queue" },
   { label: "Analytics", href: "/analytics" },
 ];
