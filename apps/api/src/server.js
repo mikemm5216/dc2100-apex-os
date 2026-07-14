@@ -39,6 +39,19 @@ const {
   resumeAutoFlowRun
 } = require("../../../lib/autoflow/api");
 
+const {
+  createStoryRunHandler,
+  listStoryRuns,
+  getStoryRun,
+  approveCandidateHandler,
+  selectDirectionHandler,
+  lockOutlineHandler,
+  lockScriptHandler,
+  regenerateHandler,
+  cancelHandler: cancelStoryRunHandler,
+  resumeHandler: resumeStoryRunHandler
+} = require("../../../lib/story/api");
+
 const port = process.env.PORT || 3000;
 
 const VALID_STATUSES = new Set([
@@ -1569,6 +1582,92 @@ const server = http.createServer(async (req, res) => {
 
     try {
       const result = await getAutoFlowRun(pool, runId);
+
+      return sendJson(res, result.statusCode, result.payload);
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  // =======================================================
+  // STORY PIPELINE (Task 3.4E)
+  // =======================================================
+
+  if (req.method === "POST" && pathname === "/api/story/runs") {
+    let body;
+
+    try {
+      body = await readJsonBody(req);
+    } catch (error) {
+      return sendJson(res, 400, {
+        error: error.message,
+        message: "Request body must contain valid JSON."
+      });
+    }
+
+    try {
+      const result = await createStoryRunHandler(pool, body, {
+        idempotencyKey: req.headers["idempotency-key"]
+      });
+
+      return sendJson(res, result.statusCode, result.payload);
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  if (req.method === "GET" && pathname === "/api/story/runs") {
+    try {
+      const result = await listStoryRuns(pool, requestUrl.searchParams);
+
+      return sendJson(res, result.statusCode, result.payload);
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  const storyGateMatch = pathname.match(
+    /^\/api\/story\/runs\/([0-9]+)\/(approve-candidate|select-direction|lock-outline|lock-script|regenerate|cancel|resume)$/
+  );
+
+  if (req.method === "POST" && storyGateMatch) {
+    const [, runId, action] = storyGateMatch;
+
+    let body;
+
+    try {
+      body = await readJsonBody(req);
+    } catch (error) {
+      return sendJson(res, 400, {
+        error: error.message,
+        message: "Request body must contain valid JSON."
+      });
+    }
+
+    const actionHandlers = {
+      "approve-candidate": approveCandidateHandler,
+      "select-direction": selectDirectionHandler,
+      "lock-outline": lockOutlineHandler,
+      "lock-script": lockScriptHandler,
+      regenerate: regenerateHandler,
+      cancel: cancelStoryRunHandler,
+      resume: resumeStoryRunHandler
+    };
+
+    try {
+      const result = await actionHandlers[action](pool, runId, body);
+
+      return sendJson(res, result.statusCode, result.payload);
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  const storyRunMatch = pathname.match(/^\/api\/story\/runs\/([0-9]+)$/);
+
+  if (req.method === "GET" && storyRunMatch) {
+    try {
+      const result = await getStoryRun(pool, storyRunMatch[1]);
 
       return sendJson(res, result.statusCode, result.payload);
     } catch (error) {
