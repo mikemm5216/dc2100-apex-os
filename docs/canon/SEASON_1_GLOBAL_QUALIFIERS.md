@@ -2,7 +2,9 @@
 
 ```
 canon_version: 1.0.0
-document_status: DRAFT_AWAITING_APPROVAL
+document_status: APPROVED_V1
+approved_by: michael
+approval_effective_on_merge: true
 document_role: SEASON_OUTLINE
 season_id: SEASON_1
 season_slug: GLOBAL_QUALIFIERS
@@ -21,6 +23,20 @@ required_human_gate: Gate 2 — Story Direction Selection, Gate 3 — Outline Lo
 `APEX_RULES_V1.md` 保持一致。本文件不指派任何真實車手或真實車輛作為固定 Canon 角色——
 所有具體人物與載具由 Fusion Candidate（見既有 Vehicle-Centered Signal Fusion 系統）
 與 Michael 的 Human Gate 決定後，才填入本文件定義的 Slot 結構中。
+
+### Authority Rule
+
+- `SEASON_1_GLOBAL_QUALIFIERS.md` governs Season 1 structure and beats.
+- `DC2100_STORY_BIBLE_V1.md` governs world, tone, factions, technology,
+  resources and IP boundaries.
+- `APEX_RULES_V1.md` governs competition hierarchy and race rules.
+- `CANON_STATE_MODEL.md` governs states, transitions and human gates.
+- Within these governed scopes, the four approved V1 documents supersede
+  conflicting legacy details in `CANON.md`.
+- `CANON.md` remains the baseline only for areas not replaced or expanded by
+  these V1 documents.
+- Any unresolved cross-document conflict must fail closed with
+  `CANON_CONFLICT` and require Michael review.
 
 ---
 
@@ -131,8 +147,13 @@ Season 1 結束時，以下狀態必須已經改變：
 - **conflict**：報名系統瞬間湧入遠超預期的申請量，Evidence 審核系統出現明顯延遲與爭議。
 - **decision**：Organizers 必須決定是否放寬 Evidence 審核速度以應付報名量。
 - **consequence**：審核放寬導致後續 Beat 中偽造報名問題浮現的伏筆成立。
-- **canon state change**：`DISCOVERED` → 八個 Region Slot 進入 `QUALIFIER_ENTERED`
-  報名接受狀態（Region 層級的初步開放，尚非正式 `REGION_UNLOCKED`）。
+- **canon state change**：八個 Region Slot 在 Season 開始時已處於 `REGION_LOCKED`
+  （見第 2 節 Beginning State），本 Beat 不改變任何 Region 的 Canon State——
+  報名窗口開啟是 operational event，不是 Canon State transition。新收到的
+  Candidate Slot 進入 `DISCOVERED`；個別 Candidate 通過 Gate 1 後才能提出
+  `CANDIDATE_APPROVED`；Driver/Team 完成 `APEX_RULES_V1.md` 第 3 節 Entry Rules
+  （含 Evidence 驗證）後，才可提出 `QUALIFIER_ENTERED`。`QUALIFIER_ENTERED` 僅
+  適用於 DRIVER/TEAM 實體，Region 本身不得使用 `QUALIFIER_ENTERED`。
 - **candidate slots involved**：CANDIDATE_SLOT_01 至 CANDIDATE_SLOT_08（每 Region 一名代表性報名者）。
 - **suitable short formats**：Driver Introduction、Hook-driven announcement recap。
 - **long-form assembly role**：作為 Driver Introduction Chapter 的開場素材。
@@ -345,29 +366,34 @@ Season 1 結束時，以下狀態必須已經改變：
 - **beat_id**：BEAT-13
 - **act**：Act III — First Qualified Field and Dome Intervention
 - **title**：The Regional Reckoning
-- **setup**：REGION_NORTH_AMERICA 舉行本屆 Regional Qualifiers 的 Elimination Race 決賽。
-  現任席位持有者 CANDIDATE_SLOT_15 與 COMEBACK_PENDING 候選人 CANDIDATE_SLOT_14
-  正式進入依約指定的公開挑戰賽段（Comeback 公開挑戰代價，見
-  `APEX_RULES_V1.md` 第 10 節）。
-- **conflict**：這場挑戰賽段的結果將同時決定 CANDIDATE_SLOT_14 能否完成 Comeback
-  代價，以及 CANDIDATE_SLOT_15 是否保有現有席位。
-- **decision**：CANDIDATE_SLOT_14 在資源劣勢下選擇高風險策略而非保守完賽。
-- **consequence**：CANDIDATE_SLOT_14 在本次挑戰賽段勝出。
-- **canon state change**（合法事件序列，過去的歷史事件不可刪除或覆寫）：
-  1. CANDIDATE_SLOT_14 與 CANDIDATE_SLOT_15 正式進入本次 challenge stage，
-     雙方皆 → `QUALIFIER_ENTERED`（CANDIDATE_SLOT_15 先前已取得的
-     `QUALIFIER_PASSED` 歷史事件不受影響、永久保留）。
-  2. Challenge 賽事依 Scoring 判定結果：CANDIDATE_SLOT_14 →
-     `QUALIFIER_PASSED`（作為完成 Comeback 代價的具體 Evidence）；
-     CANDIDATE_SLOT_15 → `QUALIFIER_FAILED`（僅代表本次 challenge stage 的
-     結果，不抹除其先前的 `QUALIFIER_PASSED` 歷史事件）。
-  3. CANDIDATE_SLOT_14 的 `QUALIFIER_PASSED` Evidence 連同其既有的
-     `COMEBACK_PENDING` 提案，經 Gate 7 核准後 → `COMEBACK_GRANTED`。
-  4. CANDIDATE_SLOT_15 的 `QUALIFIER_FAILED` 只建立「是否進入 Reserve」的
-     `PROPOSED_STATE_CHANGE`；必須先經 Gate 1（Candidate Selection）確認具備
-     Reserve 資格，再經 Gate 7（Canon State Commit）正式核准後，才轉為
-     `RESERVE`。本 Beat 本身不直接完成此核准，留待後續 Gate 7 batch commit
-     階段處理（`QUALIFIED` 與 `RESERVE` 之間不存在直接轉換）。
+- **setup**：REGION_NORTH_AMERICA 舉行一場 public challenge，做為
+  CANDIDATE_SLOT_14 完成 Comeback 代價（見 `APEX_RULES_V1.md` 第 10 節「公開
+  挑戰」）的指定方式。CANDIDATE_SLOT_14（`COMEBACK_PENDING`）依約向現任
+  `QUALIFIED` 席位持有者 CANDIDATE_SLOT_15 提出公開挑戰。
+- **conflict**：這場 public challenge 本身不是第 5 節任何一種 Race Format 的
+  正式資格判定（不屬於 main hierarchy 或 Underground Circuits 的晉級流程），
+  而是專屬於 Comeback 代價的 Evidence 產生機制；結果只決定 CANDIDATE_SLOT_14
+  能否完成代價，不涉及 CANDIDATE_SLOT_15 的既有資格。
+- **decision**：CANDIDATE_SLOT_14 在資源劣勢下選擇高風險策略而非保守應戰。
+- **consequence**：CANDIDATE_SLOT_14 在本次 public challenge 勝出，取得完成
+  Comeback 代價所需的勝利紀錄。
+- **canon state change**（最小且合法的 Comeback 流程；public challenge 本身
+  不是 Group A State，不建立任何 `QUALIFIER_ENTERED`、`QUALIFIER_PASSED`
+  或 `QUALIFIER_FAILED` 事件）：
+  1. CANDIDATE_SLOT_14 在整場 public challenge 期間維持 `COMEBACK_PENDING`，
+     不轉換為 `QUALIFIER_ENTERED`。
+  2. Public challenge 的勝利紀錄只作為完成 Comeback 代價的 Evidence，
+     附加於既有的 `COMEBACK_PENDING` 提案上。
+  3. 該 Evidence 經 Gate 7（Canon State Commit）核准後，CANDIDATE_SLOT_14：
+     `COMEBACK_PENDING` → `COMEBACK_GRANTED`。
+  4. CANDIDATE_SLOT_14 唯有在取得 `COMEBACK_GRANTED` 之後，才可以在下一場
+     正式賽事中提出 `QUALIFIER_ENTERED`。
+  5. CANDIDATE_SLOT_15 保留其原本的 `QUALIFIER_PASSED` / `QUALIFIED` 歷史與
+     目前資格；本次 public challenge **不自動奪走**其席位，不產生
+     `QUALIFIER_FAILED`，也不產生任何 `RESERVE` proposal。若未來需要正式
+     淘汰 CANDIDATE_SLOT_15 的席位，必須另外建立一個獨立的正式
+     Elimination Stage（依 `APEX_RULES_V1.md` 第 5 節 Elimination Race
+     格式），不得與本次 Comeback Evidence Challenge 混合處理。
 - **candidate slots involved**：CANDIDATE_SLOT_14、CANDIDATE_SLOT_15。
 - **suitable short formats**：High-stakes showdown、Payoff-driven climax edit。
 - **long-form assembly role**：作為 Regional Compilation（North America）的高潮收尾。
@@ -435,9 +461,12 @@ Season 1 結束時，以下狀態必須已經改變：
    Barn Find、Weird Cars、EV、Classic Racing、Street Culture）。
 4. Fusion Candidate 填入 Slot 前，必須先通過 Gate 1（Candidate Selection），
    由 Michael 確認其 fusion_evidence 是否足以支撐該 Beat 的 setup 與 conflict。
-5. 填入後產生的具體人物與載具設定，一旦通過 Gate 3（Outline Lock），
-   即視為該 Beat 的固定 Canon 內容，後續 Short 不得任意更換其身份設定，
-   除非透過正式的 Comeback 或 Rivalry 類 Canon State 變更（見 `CANON_STATE_MODEL.md`）。
+5. 填入後產生的具體人物、載具與 Slot Assignment，一旦通過 Gate 3（Outline Lock），
+   成為固定的 production proposal：後續 Script Generator 不得自行替換這些設定。
+   但在 Gate 7（Canon State Commit）核准前，這仍不是正式 Canon，只是鎖定的
+   製作提案。唯有通過 Gate 7 後，這些人物、載具與 Slot Assignment 才正式成為
+   固定的 Canon identity / slot assignment；其後續變更必須透過正式的 Comeback
+   或 Rivalry 類 Canon State 變更（見 `CANON_STATE_MODEL.md`）。
 6. 若沒有任何 Fusion Candidate 符合特定 Slot 的條件，該 Slot 保持
    Candidate Slot 抽象狀態，Short 內容改以 Faction Role 或 Region Slot
    視角敘事，不得虛構一個未經 Fusion 流程驗證的具體人物頂替。

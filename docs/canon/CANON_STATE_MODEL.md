@@ -2,7 +2,9 @@
 
 ```
 canon_version: 1.0.0
-document_status: DRAFT_AWAITING_APPROVAL
+document_status: APPROVED_V1
+approved_by: michael
+approval_effective_on_merge: true
 document_role: CANON_STATE_MODEL
 governs: state layers, state vocabulary, transition rules, human gates, versioning
 related_documents:
@@ -31,9 +33,23 @@ Region、Resource、Relationship、Competition）的狀態機。
   （「被系統首次發現，尚未經人工確認」），但作用在不同的實體類型上，
   不代表兩個狀態機共享同一個狀態機定義。
 
-`CANON.md` — Canon Change Rule 既有的 `PROPOSED → REVIEWED → CEO_APPROVED → CANON`
-生命週期，是本文件 `PROPOSED_STATE_CHANGE → CANON_STATE_COMMITTED` 機制（見第 5 節）
+`CANON.md` 既有的 `PROPOSED → REVIEWED → CEO_APPROVED → CANON` 生命週期，
+是本文件 `PROPOSED_STATE_CHANGE → CANON_STATE_COMMITTED` 機制（見第 5 節）
 的既有雛形；本文件將其正式擴展為可追蹤、可版本化的完整狀態模型。
+
+### Authority Rule
+
+- `CANON_STATE_MODEL.md` governs states, transitions and human gates.
+- `DC2100_STORY_BIBLE_V1.md` governs world, tone, factions, technology,
+  resources and IP boundaries.
+- `APEX_RULES_V1.md` governs competition hierarchy and race rules.
+- `SEASON_1_GLOBAL_QUALIFIERS.md` governs Season 1 structure and beats.
+- Within these governed scopes, the four approved V1 documents supersede
+  conflicting legacy details in `CANON.md`.
+- `CANON.md` remains the baseline only for areas not replaced or expanded by
+  these V1 documents.
+- Any unresolved cross-document conflict must fail closed with
+  `CANON_CONFLICT` and require Michael review.
 
 ---
 
@@ -64,6 +80,20 @@ effect on future scripts。
 
 Gate 名稱對照第 5 節。
 
+**統一 Gate 規則**：`DISCOVERED` 可由系統自動建立，屬於 pre-canon discovery
+record，不需要任何 Gate 即可存在，也不會、也不需要成為 `CANON_STATE_COMMITTED`。
+除 `DISCOVERED` 外，其餘 21 個 State 一律遵循同一模板，個別條目的
+`required human gate` 不得與本模板矛盾：
+
+> Gate X creates or locks the `PROPOSED_STATE_CHANGE`; Gate 7 is required for
+> `CANON_STATE_COMMITTED`.
+
+其中 Gate X 依 State 性質而定：候選/資格類 State 使用 Gate 1，敘事類
+（Relationship / Resource / Vehicle）State 使用 Gate 3，直接由 Scoring 或
+Penalty 產生的競賽結果類 State 直接以 Gate 7 形成並核准提案（無需額外的
+Gate 1/3 前置步驟）。Gate 7 一律可對同一 Beat 或同一 Content 內的多筆 State
+進行 batch commit。
+
 ### DISCOVERED
 
 - **meaning**：一個潛在的 Story 實體（通常來自 Fusion Candidate）首次被系統識別，
@@ -73,7 +103,8 @@ Gate 名稱對照第 5 節。
 - **allowed next states**：`CANDIDATE_APPROVED`。
 - **required evidence**：Fusion Candidate 的 `fusion_evidence` 快照或等效的
   Scanner / Country News / Person Radar 來源訊號。
-- **required human gate**：無（AI Pipeline 可自動產生此狀態作為提案輸入）。
+- **required human gate**：無 Gate 需求 —— `DISCOVERED` 是 pre-canon discovery
+  record，由系統自動建立，不會、也不需要成為 `CANON_STATE_COMMITTED`。
 - **reversible or irreversible**：Reversible（可被忽略、封存，不產生任何後續 Canon 效果）。
 - **effect on future scripts**：不得作為 Script 的正式角色或事件依據，僅供 Gate 1 審核參考。
 
@@ -85,7 +116,9 @@ Gate 名稱對照第 5 節。
 - **valid previous states**：`DISCOVERED`。
 - **allowed next states**：`QUALIFIER_ENTERED`。
 - **required evidence**：Michael 的明確核准紀錄（approved_by、approved_at，見第 7 節）。
-- **required human gate**：Gate 1 — Candidate Selection。
+- **required human gate**：Gate 1（Candidate Selection）creates/locks the
+  `PROPOSED_STATE_CHANGE`；Gate 7（Canon State Commit）is required for
+  `CANON_STATE_COMMITTED`，可與同一 Beat 內其他候選核准一併 batch commit。
 - **reversible or irreversible**：Reversible（核准後若尚未進入 QUALIFIER_ENTERED，
   可被撤回並退回 DISCOVERED）。
 - **effect on future scripts**：Script Pipeline 可開始為此實體撰寫 Driver Introduction
@@ -99,10 +132,12 @@ Gate 名稱對照第 5 節。
   `WILD_CARD_GRANTED`、`COMEBACK_GRANTED`。
 - **allowed next states**：`QUALIFIER_PASSED`、`QUALIFIER_FAILED`、`DISQUALIFIED`、`WITHDRAWN`。
 - **required evidence**：`APEX_RULES_V1.md` 第 3 節 Entry Rules 的合規紀錄。
-- **required human gate**：依前置狀態而定：從 `CANDIDATE_APPROVED` 而來，沿用其
-  Gate 1 效力，不需額外新增 Gate；從 `RESERVE` 遞補而來，沿用其已完成的 Gate 7
-  效力（見 `RESERVE` 條目）；從 `WILD_CARD_GRANTED` 或 `COMEBACK_GRANTED` 而來，
-  沿用其已完成的 Gate 7 效力。
+- **required human gate**：Gate 1（Candidate Selection，確認 Entry Rules 合規）
+  creates/locks the `PROPOSED_STATE_CHANGE`；Gate 7（Canon State Commit）is
+  required for `CANON_STATE_COMMITTED`，可對同一 Beat 內多筆報名一併
+  batch commit。不論前置狀態為 `CANDIDATE_APPROVED`、`RESERVE` 遞補、
+  `WILD_CARD_GRANTED` 或 `COMEBACK_GRANTED`，每一次進入 `QUALIFIER_ENTERED`
+  都須各自完成本次 Gate 7 才能生效。
 - **reversible or irreversible**：Reversible（賽事尚未產生結果前）。
 - **effect on future scripts**：可撰寫報名、資格審核類 Short（例如 BEAT-01、BEAT-04）。
 
@@ -154,7 +189,9 @@ Gate 名稱對照第 5 節。
 - **allowed next states**：`WILD_CARD_GRANTED`，或維持原狀（未獲授予）。
 - **required evidence**：`APEX_RULES_V1.md` 第 9 節列出的 Evidence 類型
   （Underground Circuit 表現、技術突破、故事必要性）。
-- **required human gate**：Gate 1 — Candidate Selection。
+- **required human gate**：Gate 1（Candidate Selection）creates/locks the
+  `PROPOSED_STATE_CHANGE`；Gate 7（Canon State Commit）is required for
+  `CANON_STATE_COMMITTED`。
 - **reversible or irreversible**：Reversible。
 - **effect on future scripts**：可撰寫「等待審核」的懸念類內容,不得預先撰寫授予結果。
 
@@ -178,7 +215,9 @@ Gate 名稱對照第 5 節。
 - **allowed next states**：`COMEBACK_GRANTED`，或維持原狀（代價未完成）。
 - **required evidence**：`APEX_RULES_V1.md` 第 10 節指定的具體代價條款
   （新資格賽 / 資源損失 / 車輛降級 / 勢力交換 / 關係破裂 / 公開挑戰）。
-- **required human gate**：Gate 1 — Candidate Selection。
+- **required human gate**：Gate 1（Candidate Selection）creates/locks the
+  `PROPOSED_STATE_CHANGE`；Gate 7（Canon State Commit）is required for
+  `CANON_STATE_COMMITTED`。
 - **reversible or irreversible**：Reversible（代價可長期未完成而不影響其他狀態）。
 - **effect on future scripts**：Script 必須呈現代價本身的執行過程,不得跳過代價直接寫成功。
 - **restriction**：`DISQUALIFIED` 實體在同一 Season 內不得進入本狀態（與 Wild Card

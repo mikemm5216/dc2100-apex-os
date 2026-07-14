@@ -2,11 +2,13 @@
 
 ```
 canon_version: 1.0.0
-document_status: DRAFT_AWAITING_APPROVAL
+document_status: APPROVED_V1
+approved_by: michael
+approval_effective_on_merge: true
 document_role: STORY_BIBLE
 governs: world, factions, technology, resources, themes, tone, immutable/dynamic canon, IP safety
 related_documents:
-  - CANON.md (existing world canon — this document expands it, does not replace it)
+  - CANON.md (existing world canon; see Authority Rule below for scope)
   - P0_RULES.md (existing production rules for the Global Qualifiers content event)
   - STATUS_FLOW.md (existing content-pipeline status machine — separate layer, see CANON_STATE_MODEL.md)
   - docs/canon/APEX_RULES_V1.md
@@ -17,14 +19,28 @@ required_human_gate: Gate 7 — Canon State Commit (see CANON_STATE_MODEL.md)
 
 ## 0. 文件定位
 
-本文件是 DC 2100 宇宙的正式 Story Bible。它是既有 `CANON.md` 的延伸與具體化，
-不是替代品。凡是 `CANON.md` 已經鎖定的規則（Dome / Wasteland 二元世界、內燃機文化、
+本文件是 DC 2100 宇宙的正式 Story Bible，是既有 `CANON.md` 的延伸與具體化。
+凡是 `CANON.md` 已經鎖定的世界觀基礎（Dome / Wasteland 二元世界、內燃機文化、
 EV 定位、APEX 分層、Resource Conflict 系統、政治諷刺邊界、國家表現規則、車輛規則、
-車手規則、Canon 變更規則），本文件必須維持一致，只做細節擴充。
+車手規則），本文件原則上維持一致並做細節擴充；但依下方 Authority Rule，
+在本文件所管轄（govern）的範圍內，若與 `CANON.md` 的舊版細節出現字面衝突，
+以本文件為準，`CANON.md` 僅在未被本文件取代或擴充的部分作為 baseline。
 
 任何未來的 Story Direction、Outline 或 Script Pipeline，在生成內容前都必須讀取本文件。
-本文件的權威順序低於 `CANON.md` — Canon Priority 章節——若兩者出現字面衝突，
-以 `CANON.md` 為準，並應立即提交 Michael 審查以修正本文件。
+
+### Authority Rule
+
+- `DC2100_STORY_BIBLE_V1.md` governs world, tone, factions, technology,
+  resources and IP boundaries.
+- `APEX_RULES_V1.md` governs competition hierarchy and race rules.
+- `SEASON_1_GLOBAL_QUALIFIERS.md` governs Season 1 structure and beats.
+- `CANON_STATE_MODEL.md` governs states, transitions and human gates.
+- Within these governed scopes, the four approved V1 documents supersede
+  conflicting legacy details in `CANON.md`.
+- `CANON.md` remains the baseline only for areas not replaced or expanded by
+  these V1 documents.
+- Any unresolved cross-document conflict must fail closed with
+  `CANON_CONFLICT` and require Michael review.
 
 ---
 
@@ -400,7 +416,7 @@ APEX 第一代因不明原因消失——官方說法是「資源濫用導致的
 ## 9. Tone
 
 - **Serious Core**：核心衝突必須被認真對待,角色的抉擇必須有真實代價。
-- **Political Satire Boundaries**：遵循 `CANON.md` 第 8 節;諷刺對象是制度、誘因與意識形態,
+- **Political Satire Boundaries**：遵循 `CANON.md`;諷刺對象是制度、誘因與意識形態,
   不是族群或個人。
 - **Dark Humor**：允許,但必須服務角色或情境,不能取代真實的戲劇張力。
 - **Automotive Passion**：車輛與駕駛技藝必須被以真實的熱情與細節呈現,不能淪為背景道具。
