@@ -4,6 +4,7 @@ const {
   ProviderError,
   PROVIDER_ERROR_CODES,
   readProviderConfig,
+  redactSecrets,
   generateJson
 } = require("../lib/story/provider");
 
@@ -322,6 +323,101 @@ async function run() {
 
     if (previousAttempts === undefined) delete process.env.STORY_LLM_MAX_ATTEMPTS;
     else process.env.STORY_LLM_MAX_ATTEMPTS = previousAttempts;
+  }
+
+  // -------------------------------------------------------
+  // Unsupported provider name rejected -- never silently
+  // falls through to calling the Gemini endpoint anyway.
+  // -------------------------------------------------------
+  {
+    const previousProvider = process.env.STORY_LLM_PROVIDER;
+    const previousKey = process.env.GEMINI_API_KEY;
+    const previousModel = process.env.STORY_GEMINI_MODEL;
+
+    process.env.STORY_LLM_PROVIDER = "openai";
+    process.env.GEMINI_API_KEY = "test-key";
+    process.env.STORY_GEMINI_MODEL = "test-model";
+
+    assert.throws(
+      () => readProviderConfig(),
+      error => {
+        assert.ok(error instanceof ProviderError);
+        assert.equal(error.code, PROVIDER_ERROR_CODES.PROVIDER_UNSUPPORTED);
+        return true;
+      }
+    );
+
+    if (previousProvider === undefined) delete process.env.STORY_LLM_PROVIDER;
+    else process.env.STORY_LLM_PROVIDER = previousProvider;
+
+    if (previousKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = previousKey;
+
+    if (previousModel === undefined) delete process.env.STORY_GEMINI_MODEL;
+    else process.env.STORY_GEMINI_MODEL = previousModel;
+  }
+
+  // -------------------------------------------------------
+  // redactSecrets(): a known secret value is masked verbatim.
+  // -------------------------------------------------------
+  {
+    const redacted = redactSecrets(
+      "Provider request failed: secret-test-api-key-should-never-leak was rejected",
+      ["secret-test-api-key-should-never-leak"]
+    );
+
+    assert.ok(!redacted.includes("secret-test-api-key-should-never-leak"));
+    assert.ok(redacted.includes("***REDACTED***"));
+  }
+
+  // -------------------------------------------------------
+  // redactSecrets(): a URL containing ?key=SECRET is redacted
+  // even without the secret value being passed explicitly.
+  // -------------------------------------------------------
+  {
+    const redacted = redactSecrets(
+      "Provider request failed: fetch to https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5:generateContent?key=SECRET_VALUE_123 timed out"
+    );
+
+    assert.ok(!redacted.includes("SECRET_VALUE_123"));
+    assert.ok(redacted.includes("key=***REDACTED***"));
+  }
+
+  // -------------------------------------------------------
+  // redactSecrets(): Authorization / x-goog-api-key header
+  // shaped text is redacted.
+  // -------------------------------------------------------
+  {
+    const redacted = redactSecrets(
+      'Upstream error: {"x-goog-api-key": "SECRET_HEADER_VALUE"}'
+    );
+
+    assert.ok(!redacted.includes("SECRET_HEADER_VALUE"));
+  }
+
+  // -------------------------------------------------------
+  // End-to-end: a fetch failure whose message happens to leak
+  // the request URL (with ?key=...) must come out of
+  // generateJson() already redacted, never raw.
+  // -------------------------------------------------------
+  {
+    const leakyApiKey = "leaky-key-in-url-abc123";
+
+    try {
+      await generateJson({
+        task: "TEST",
+        systemPrompt: "sp",
+        input: {},
+        schemaName: "test",
+        config: { ...BASE_CONFIG, apiKey: leakyApiKey, maxAttempts: 1 },
+        fetchImpl: async url => {
+          throw new Error(`fetch failed for ${url}`);
+        }
+      });
+      assert.fail("expected generateJson to throw");
+    } catch (error) {
+      assert.ok(!String(error.message).includes(leakyApiKey));
+    }
   }
 
   console.log("TASK 3.4E STORY PROVIDER TESTS PASSED");

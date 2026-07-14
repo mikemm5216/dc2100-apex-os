@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS story_pipeline_runs (
   script_language TEXT,
 
   selected_direction_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+  selection_mode TEXT,
+  merge_notes TEXT,
   selected_script_id BIGINT,
 
   failure_stage TEXT,
@@ -55,7 +57,19 @@ CREATE TABLE IF NOT EXISTS story_pipeline_runs (
 
   worker_id TEXT,
   lease_expires_at TIMESTAMPTZ,
+
+  -- attempt_count: total Claim count across the entire Run's
+  -- lifetime (all stages combined), for observability only.
+  -- stage_attempt_count: Claim count for the CURRENT stage
+  -- only, reset to 0 every time the run enters a new
+  -- QUEUED_* stage (first entry, advance to the next stage,
+  -- or Regenerate). The 3-attempt ceiling in engine.js is
+  -- enforced against stage_attempt_count, never attempt_count
+  -- -- otherwise a normal DIRECTIONS -> OUTLINE -> SCRIPTS run
+  -- would already be at 3 by the time it reaches Scripts and
+  -- Regenerate/Resume would immediately exceed the ceiling.
   attempt_count INTEGER NOT NULL DEFAULT 0,
+  stage_attempt_count INTEGER NOT NULL DEFAULT 0,
 
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -133,8 +147,17 @@ CREATE TABLE IF NOT EXISTS story_pipeline_runs (
   CONSTRAINT story_pipeline_runs_selected_direction_ids_is_array
     CHECK (jsonb_typeof(selected_direction_ids) = 'array'),
 
+  CONSTRAINT story_pipeline_runs_selection_mode_valid
+    CHECK (
+      selection_mode IS NULL OR
+      selection_mode IN ('SINGLE', 'MERGE')
+    ),
+
   CONSTRAINT story_pipeline_runs_attempt_count_nonnegative
-    CHECK (attempt_count >= 0)
+    CHECK (attempt_count >= 0),
+
+  CONSTRAINT story_pipeline_runs_stage_attempt_count_nonnegative
+    CHECK (stage_attempt_count >= 0)
 );
 
 -- Idempotent create requests: a repeated POST with the same

@@ -14,6 +14,13 @@ const {
   resumeHandler
 } = require("../lib/story/api");
 
+const {
+  buildCandidateSnapshot,
+  evidenceIdsFromSnapshot
+} = require("../lib/story/engine");
+
+const { validateOutline } = require("../lib/story/validators");
+
 // ---------------------------------------------------------
 // In-memory mock database. Dispatches on SQL text substrings,
 // the same pattern used by scripts/test-autoflow-api.js -- no
@@ -165,6 +172,8 @@ function createMockDb({ candidates = {} } = {}) {
         review_language: null,
         script_language: null,
         selected_direction_ids: [],
+        selection_mode: null,
+        merge_notes: null,
         selected_script_id: null,
         failure_stage: null,
         error_code: null,
@@ -172,6 +181,7 @@ function createMockDb({ candidates = {} } = {}) {
         worker_id: null,
         lease_expires_at: null,
         attempt_count: 0,
+        stage_attempt_count: 0,
         created_at: now,
         updated_at: now,
         completed_at: null,
@@ -206,7 +216,8 @@ function createMockDb({ candidates = {} } = {}) {
     ) {
       const [
         candidateSlotId, beatId, apexStage, creatorNotes,
-        forbiddenElements, reviewLanguage, scriptLanguage, runId
+        forbiddenElements, reviewLanguage, scriptLanguage,
+        canonVersion, rulesVersion, seasonVersion, canonHash, runId
       ] = values;
 
       const row = state.runs.get(Number(runId));
@@ -219,6 +230,11 @@ function createMockDb({ candidates = {} } = {}) {
       row.forbidden_elements = JSON.parse(forbiddenElements);
       row.review_language = reviewLanguage;
       row.script_language = scriptLanguage;
+      row.canon_version = canonVersion;
+      row.rules_version = rulesVersion;
+      row.season_version = seasonVersion;
+      row.canon_hash = canonHash;
+      row.stage_attempt_count = 0;
       row.updated_at = fixedNow();
 
       return { rows: [{ ...row }], rowCount: 1 };
@@ -248,11 +264,14 @@ function createMockDb({ candidates = {} } = {}) {
       trimmed.includes("UPDATE story_pipeline_runs") &&
       trimmed.includes("'QUEUED_OUTLINE'")
     ) {
-      const [selectedIdsJson, runId] = values;
+      const [selectedIdsJson, selectionMode, mergeNotes, runId] = values;
       const row = state.runs.get(Number(runId));
       row.status = "QUEUED_OUTLINE";
       row.current_stage = "QUEUED_OUTLINE";
       row.selected_direction_ids = JSON.parse(selectedIdsJson);
+      row.selection_mode = selectionMode;
+      row.merge_notes = mergeNotes;
+      row.stage_attempt_count = 0;
       row.updated_at = fixedNow();
       return { rows: [{ ...row }], rowCount: 1 };
     }
@@ -294,6 +313,7 @@ function createMockDb({ candidates = {} } = {}) {
       const row = state.runs.get(Number(runId));
       row.status = "QUEUED_SCRIPTS";
       row.current_stage = "QUEUED_SCRIPTS";
+      row.stage_attempt_count = 0;
       row.updated_at = fixedNow();
       return { rows: [{ ...row }], rowCount: 1 };
     }
@@ -393,10 +413,19 @@ function createMockDb({ candidates = {} } = {}) {
       const row = state.runs.get(Number(runId));
       row.status = queuedStatus;
       row.current_stage = queuedStatus;
+      row.stage_attempt_count = 0;
       row.updated_at = fixedNow();
 
       if (trimmed.includes("selected_direction_ids = '[]'")) {
         row.selected_direction_ids = [];
+      }
+
+      if (trimmed.includes("selection_mode = NULL")) {
+        row.selection_mode = null;
+      }
+
+      if (trimmed.includes("merge_notes = NULL")) {
+        row.merge_notes = null;
       }
 
       if (trimmed.includes("selected_script_id = NULL")) {
@@ -557,21 +586,44 @@ function createMockDb({ candidates = {} } = {}) {
 function seedCandidate(id, overrides = {}) {
   return {
     id,
+    fusion_run_id: 900,
     vehicle_id: 1,
     vehicle_code: "VH-1",
     vehicle_name: "Test Vehicle",
+    vehicle_manufacturer: "Test Manufacturer",
+    vehicle_category: "Sports Car",
     country_id: 1,
     country_code: "US",
     country_name: "United States",
     country_news_signal_id: 10,
     country_news_title: "Some real news title",
+    country_news_canonical_title: "Some real news title",
     country_news_url: "https://example.com/news",
+    country_news_source: "Example Wire",
+    country_news_domain: "example.com",
     country_news_category: "TECH",
+    country_news_provider: "GOOGLE_NEWS_RSS",
+    country_news_published_at: new Date("2026-01-01T00:00:00Z"),
+    country_news_first_seen_at: new Date("2026-01-01T01:00:00Z"),
+    country_news_created_at: new Date("2026-01-01T02:00:00Z"),
     person_id: null,
     person_slug: null,
     person_canonical_name: null,
+    person_role_category: null,
     vehicle_person_link_id: null,
     person_link_tier: null,
+    link_relation_type: null,
+    link_confidence: null,
+    link_method: null,
+    resonance_evidence_horizon: null,
+    resonance_score: null,
+    resonance_tier: null,
+    resonance_evidence: {},
+    resonance_version: null,
+    person_traffic_url: null,
+    person_traffic_source: null,
+    person_traffic_domain: null,
+    person_traffic_first_seen_at: null,
     missing_signals: ["NO_PERSON_SIGNAL"],
     is_complete: false,
     fusion_evidence: {},
@@ -580,6 +632,32 @@ function seedCandidate(id, overrides = {}) {
     created_at: new Date(),
     ...overrides
   };
+}
+
+function seedCandidateWithPerson(id, overrides = {}) {
+  return seedCandidate(id, {
+    person_id: 55,
+    person_slug: "jane-driver",
+    person_canonical_name: "Jane Driver",
+    person_role_category: "DRIVER_RACER",
+    vehicle_person_link_id: 77,
+    person_link_tier: "EXACT_VEHICLE",
+    link_relation_type: "DRIVER",
+    link_confidence: 0.92,
+    link_method: "CATALOG",
+    resonance_evidence_horizon: "TEN_YEARS",
+    resonance_score: 81.5,
+    resonance_tier: "ESTABLISHED",
+    resonance_evidence: { basis: "catalog entry" },
+    resonance_version: "resonance-v1",
+    person_traffic_url: "https://example.com/jane-driver",
+    person_traffic_source: "Example Wire",
+    person_traffic_domain: "example.com",
+    person_traffic_first_seen_at: new Date("2026-01-02T00:00:00Z"),
+    missing_signals: [],
+    is_complete: true,
+    ...overrides
+  });
 }
 
 function directionRow(runId, id, overrides = {}) {
@@ -1016,6 +1094,359 @@ async function run() {
 
     assert.equal(result.statusCode, 400);
     assert.equal(result.payload.error, "VALIDATION_ERROR");
+  }
+
+  // =========================================================
+  // Section 1 fix: Detail API exposes both attempt_count
+  // (lifetime total) and stage_attempt_count (current stage).
+  // =========================================================
+  {
+    const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
+    const created = await createStoryRunHandler(pool, { fusion_candidate_id: 1 }, {});
+    const runId = created.payload.data.id;
+
+    pool._state.runs.get(Number(runId)).attempt_count = 5;
+    pool._state.runs.get(Number(runId)).stage_attempt_count = 2;
+
+    const detail = await getStoryRun(pool, runId);
+
+    assert.equal(detail.payload.data.run.attempt_count, 5);
+    assert.equal(detail.payload.data.run.stage_attempt_count, 2);
+  }
+
+  // =========================================================
+  // Section 2 fix: Gate 2 merge instructions.
+  // =========================================================
+
+  // MERGE without merge_notes -> 400 VALIDATION_ERROR.
+  {
+    const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
+    const created = await createStoryRunHandler(pool, { fusion_candidate_id: 1 }, {});
+    const runId = created.payload.data.id;
+
+    pool._state.runs.get(Number(runId)).status = "AWAITING_DIRECTION_SELECTION";
+    pool._state.directions.set(1, directionRow(runId, 1));
+    pool._state.directions.set(2, directionRow(runId, 2, { direction_type: "COUNTRY_CONFLICT" }));
+
+    const result = await selectDirectionHandler(pool, runId, {
+      approved_by: "michael",
+      selected_direction_ids: [1, 2],
+      selection_mode: "MERGE"
+    });
+
+    assert.equal(result.statusCode, 400);
+    assert.equal(result.payload.error, "VALIDATION_ERROR");
+  }
+
+  // SINGLE stores selection_mode (and merge_notes stays null).
+  {
+    const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
+    const created = await createStoryRunHandler(pool, { fusion_candidate_id: 1 }, {});
+    const runId = created.payload.data.id;
+
+    pool._state.runs.get(Number(runId)).status = "AWAITING_DIRECTION_SELECTION";
+    pool._state.directions.set(1, directionRow(runId, 1));
+
+    const result = await selectDirectionHandler(pool, runId, {
+      approved_by: "michael",
+      selected_direction_ids: [1],
+      selection_mode: "SINGLE"
+    });
+
+    assert.equal(result.statusCode, 200);
+    assert.equal(result.payload.data.selection_mode, "SINGLE");
+    assert.equal(result.payload.data.merge_notes, null);
+  }
+
+  // MERGE stores the exact merge_notes string.
+  {
+    const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
+    const created = await createStoryRunHandler(pool, { fusion_candidate_id: 1 }, {});
+    const runId = created.payload.data.id;
+
+    pool._state.runs.get(Number(runId)).status = "AWAITING_DIRECTION_SELECTION";
+    pool._state.directions.set(1, directionRow(runId, 1));
+    pool._state.directions.set(2, directionRow(runId, 2, { direction_type: "COUNTRY_CONFLICT" }));
+
+    const mergeNotes =
+      "Use direction 1 as the main conflict and direction 3 for character motivation.";
+
+    const result = await selectDirectionHandler(pool, runId, {
+      approved_by: "michael",
+      selected_direction_ids: [1, 2],
+      selection_mode: "MERGE",
+      merge_notes: mergeNotes
+    });
+
+    assert.equal(result.statusCode, 200);
+    assert.equal(result.payload.data.selection_mode, "MERGE");
+    assert.equal(result.payload.data.merge_notes, mergeNotes);
+  }
+
+  // Regenerate OUTLINE keeps merge_notes (Gate 2's decision
+  // still applies to a re-attempted outline).
+  {
+    const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
+    const created = await createStoryRunHandler(pool, { fusion_candidate_id: 1 }, {});
+    const runId = created.payload.data.id;
+
+    const row = pool._state.runs.get(Number(runId));
+    row.status = "AWAITING_OUTLINE_LOCK";
+    row.selection_mode = "MERGE";
+    row.merge_notes = "Keep this instruction across regenerate.";
+    pool._state.outlines.set(1, outlineRow(runId, 1));
+
+    const result = await regenerateHandler(pool, runId, {
+      approved_by: "michael",
+      stage: "OUTLINE",
+      revision_notes: "Try again."
+    });
+
+    assert.equal(result.statusCode, 202);
+    assert.equal(result.payload.data.selection_mode, "MERGE");
+    assert.equal(
+      result.payload.data.merge_notes,
+      "Keep this instruction across regenerate."
+    );
+  }
+
+  // Regenerate DIRECTIONS clears selection_mode/merge_notes --
+  // the prior Gate 2 decision no longer applies to a fresh
+  // batch of directions.
+  {
+    const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
+    const created = await createStoryRunHandler(pool, { fusion_candidate_id: 1 }, {});
+    const runId = created.payload.data.id;
+
+    const row = pool._state.runs.get(Number(runId));
+    row.status = "AWAITING_DIRECTION_SELECTION";
+    row.selection_mode = "SINGLE";
+    row.merge_notes = null;
+    pool._state.directions.set(1, directionRow(runId, 1));
+
+    const result = await regenerateHandler(pool, runId, {
+      approved_by: "michael",
+      stage: "DIRECTIONS",
+      revision_notes: "Make them more distinct."
+    });
+
+    assert.equal(result.statusCode, 202);
+    assert.equal(result.payload.data.selection_mode, null);
+    assert.equal(result.payload.data.merge_notes, null);
+    assert.deepEqual(result.payload.data.selected_direction_ids, []);
+  }
+
+  // =========================================================
+  // Section 3 fix: Canon Bundle locked at Gate 1.
+  // =========================================================
+
+  // Gate 1 writes real Canon metadata onto the run.
+  {
+    const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
+    const created = await createStoryRunHandler(pool, { fusion_candidate_id: 1 }, {});
+    const runId = created.payload.data.id;
+
+    const result = await approveCandidateHandler(pool, runId, VALID_GATE1_BODY);
+
+    assert.equal(result.statusCode, 200);
+    assert.equal(result.payload.data.canon_version, "1.0.0");
+    assert.equal(result.payload.data.rules_version, "1.0.0");
+    assert.equal(result.payload.data.season_version, "1.0.0");
+    assert.ok(String(result.payload.data.canon_hash).startsWith("sha256:"));
+  }
+
+  // Run detail exposes the locked Canon metadata.
+  {
+    const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
+    const created = await createStoryRunHandler(pool, { fusion_candidate_id: 1 }, {});
+    const runId = created.payload.data.id;
+
+    await approveCandidateHandler(pool, runId, VALID_GATE1_BODY);
+
+    const detail = await getStoryRun(pool, runId);
+
+    assert.equal(detail.payload.data.run.canon_version, "1.0.0");
+    assert.ok(String(detail.payload.data.run.canon_hash).startsWith("sha256:"));
+  }
+
+  // =========================================================
+  // Section 4 fix: expanded, auditable Candidate Evidence
+  // Snapshot.
+  // =========================================================
+
+  // Complete candidate snapshot (with person + historical
+  // resonance evidence).
+  {
+    const pool = createMockDb({
+      candidates: { 1: seedCandidateWithPerson(1) }
+    });
+
+    const snapshot = await buildCandidateSnapshot(pool, "1");
+
+    assert.equal(snapshot.vehicle.manufacturer, "Test Manufacturer");
+    assert.equal(snapshot.vehicle.category, "Sports Car");
+    assert.equal(snapshot.country_news.source, "Example Wire");
+    assert.ok(snapshot.person);
+    assert.equal(snapshot.person.canonical_name, "Jane Driver");
+    assert.ok(snapshot.historical_resonance);
+    assert.equal(snapshot.historical_resonance.score, 81.5);
+    assert.equal(snapshot.historical_resonance.tier, "ESTABLISHED");
+    assert.equal(
+      snapshot.historical_resonance.evidence_ref,
+      "historical_resonance:77"
+    );
+    assert.equal(snapshot.provenance.fusion_run_id, "900");
+
+    const evidenceIds = evidenceIdsFromSnapshot(snapshot);
+    assert.ok(evidenceIds.has("historical_resonance:77"));
+    assert.ok(evidenceIds.has("vehicle_person_link:77"));
+    assert.ok(evidenceIds.has("person:55"));
+  }
+
+  // NO_PERSON_SIGNAL snapshot: person and historical_resonance
+  // must both be null, and no fabricated evidence id appears.
+  {
+    const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
+
+    const snapshot = await buildCandidateSnapshot(pool, "1");
+
+    assert.equal(snapshot.no_person_signal, true);
+    assert.equal(snapshot.person, null);
+    assert.equal(snapshot.historical_resonance, null);
+
+    const evidenceIds = evidenceIdsFromSnapshot(snapshot);
+
+    for (const id of evidenceIds) {
+      assert.ok(!id.startsWith("person:"));
+      assert.ok(!id.startsWith("historical_resonance:"));
+    }
+  }
+
+  // Country News source/time metadata preserved verbatim.
+  {
+    const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
+
+    const snapshot = await buildCandidateSnapshot(pool, "1");
+
+    assert.equal(snapshot.country_news.source, "Example Wire");
+    assert.equal(snapshot.country_news.domain, "example.com");
+    assert.equal(
+      snapshot.country_news.published_at.toISOString(),
+      new Date("2026-01-01T00:00:00Z").toISOString()
+    );
+  }
+
+  // Historical Resonance evidence ref accepted by the Evidence
+  // Validator.
+  {
+    const pool = createMockDb({
+      candidates: { 1: seedCandidateWithPerson(1) }
+    });
+
+    const snapshot = await buildCandidateSnapshot(pool, "1");
+    const evidenceIds = evidenceIdsFromSnapshot(snapshot);
+
+    const outline = {
+      outline_title: "T",
+      review_summary: "s",
+      opening_situation: "A".repeat(100),
+      inciting_incident: "A".repeat(100),
+      vehicle_and_driver_introduction: "A".repeat(100),
+      world_conflict: "A".repeat(100),
+      qualifier_challenge: "A".repeat(100),
+      escalation: "A".repeat(100),
+      choice_or_sacrifice: "A".repeat(100),
+      outcome: "A".repeat(100),
+      canon_state_impact: {
+        state: "PROPOSED_STATE_CHANGE",
+        target_state: "QUALIFIER_ENTERED",
+        entity_type: "DRIVER",
+        previous_state: "CANDIDATE_APPROVED",
+        evidence_refs: ["historical_resonance:77"],
+        reason: "reason"
+      },
+      next_episode_hook: "A".repeat(100),
+      evidence_map: ["historical_resonance:77"],
+      canon_constraints: [],
+      forbidden_elements_respected: [],
+      short_structure: {
+        hook_seconds: 3,
+        estimated_duration_seconds: 35,
+        narrative_beats: ["beat1"]
+      }
+    };
+
+    const result = validateOutline(outline, {
+      evidenceIds,
+      noPersonSignal: false
+    });
+
+    assert.equal(result.validation_status, "PASS");
+  }
+
+  // A nonexistent historical resonance ref is rejected.
+  {
+    const pool = createMockDb({
+      candidates: { 1: seedCandidateWithPerson(1) }
+    });
+
+    const snapshot = await buildCandidateSnapshot(pool, "1");
+    const evidenceIds = evidenceIdsFromSnapshot(snapshot);
+
+    const outline = {
+      outline_title: "T",
+      review_summary: "s",
+      opening_situation: "A".repeat(100),
+      inciting_incident: "A".repeat(100),
+      vehicle_and_driver_introduction: "A".repeat(100),
+      world_conflict: "A".repeat(100),
+      qualifier_challenge: "A".repeat(100),
+      escalation: "A".repeat(100),
+      choice_or_sacrifice: "A".repeat(100),
+      outcome: "A".repeat(100),
+      canon_state_impact: {
+        state: "PROPOSED_STATE_CHANGE",
+        target_state: "QUALIFIER_ENTERED",
+        entity_type: "DRIVER",
+        previous_state: "CANDIDATE_APPROVED",
+        evidence_refs: [],
+        reason: "reason"
+      },
+      next_episode_hook: "A".repeat(100),
+      evidence_map: ["historical_resonance:999999"],
+      canon_constraints: [],
+      forbidden_elements_respected: [],
+      short_structure: {
+        hook_seconds: 3,
+        estimated_duration_seconds: 35,
+        narrative_beats: ["beat1"]
+      }
+    };
+
+    const result = validateOutline(outline, {
+      evidenceIds,
+      noPersonSignal: false
+    });
+
+    assert.equal(result.validation_status, "BLOCKED");
+    assert.ok(result.issues.some(i => i.code === "EVIDENCE_REF_NOT_FOUND"));
+  }
+
+  // Snapshot hash is stable after creation, even if the
+  // underlying Fusion Candidate source data later changes.
+  {
+    const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
+
+    const created = await createStoryRunHandler(pool, { fusion_candidate_id: 1 }, {});
+    const runId = created.payload.data.id;
+    const originalHash = created.payload.data.candidate_snapshot_hash;
+
+    pool._state.candidates.get("1").vehicle_name = "Changed Name Later";
+
+    const detail = await getStoryRun(pool, runId);
+
+    assert.equal(detail.payload.data.run.candidate_snapshot_hash, originalHash);
+    assert.equal(detail.payload.data.candidate_snapshot_summary.vehicle.name, "Test Vehicle");
   }
 
   console.log("TASK 3.4E STORY API TESTS PASSED");

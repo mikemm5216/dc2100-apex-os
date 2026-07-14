@@ -220,6 +220,21 @@ function parseBulkIds(
   };
 }
 
+// Story Pipeline body-parse failures always report the stable
+// VALIDATION_ERROR code in the `error` field (never the raw
+// readJsonBody() error.message like "INVALID_JSON" or
+// "BODY_TOO_LARGE" -- those stay distinguishable only in the
+// human-readable `message`).
+function storyValidationErrorResponse(res, error) {
+  return sendJson(res, 400, {
+    error: "VALIDATION_ERROR",
+    message:
+      error.message === "BODY_TOO_LARGE"
+        ? "Request body is too large."
+        : "Request body must contain valid JSON."
+  });
+}
+
 function handleDatabaseError(res, error) {
   console.error("Database error:", error);
 
@@ -1599,10 +1614,7 @@ const server = http.createServer(async (req, res) => {
     try {
       body = await readJsonBody(req);
     } catch (error) {
-      return sendJson(res, 400, {
-        error: error.message,
-        message: "Request body must contain valid JSON."
-      });
+      return storyValidationErrorResponse(res, error);
     }
 
     try {
@@ -1638,10 +1650,7 @@ const server = http.createServer(async (req, res) => {
     try {
       body = await readJsonBody(req);
     } catch (error) {
-      return sendJson(res, 400, {
-        error: error.message,
-        message: "Request body must contain valid JSON."
-      });
+      return storyValidationErrorResponse(res, error);
     }
 
     const actionHandlers = {

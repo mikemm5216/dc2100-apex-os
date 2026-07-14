@@ -16,6 +16,8 @@ const {
 } = require("../lib/story/schemas");
 
 const {
+  APEX_STATE_ALLOWLIST,
+  isLegalStateTransition,
   validateDirectionBatch,
   validateOutline,
   validateScript
@@ -311,7 +313,7 @@ function run() {
         state: "PROPOSED_STATE_CHANGE",
         target_state: "QUALIFIER_ENTERED",
         entity_type: "DRIVER",
-        previous_state: "DISCOVERED",
+        previous_state: "CANDIDATE_APPROVED",
         evidence_refs: ["vehicle:1"],
         reason: "reason"
       },
@@ -591,6 +593,132 @@ function run() {
     assert.equal(result.validation_status, "BLOCKED");
     assert.ok(
       result.issues.some(i => i.code === "STATE_TRANSITION_INVALID")
+    );
+  }
+
+  // -------------------------------------------------------
+  // Real Canon State Transition Matrix (Section 5 fix):
+  // target_state membership in the allowlist is NOT the same
+  // as a legal transition. Exercise isLegalStateTransition()
+  // directly for the full valid/invalid matrix, then confirm
+  // the outline-level validator enforces it end to end.
+  // -------------------------------------------------------
+  {
+    const validTransitions = [
+      ["DISCOVERED", "CANDIDATE_APPROVED"],
+      ["QUALIFIER_ENTERED", "QUALIFIER_PASSED"],
+      ["QUALIFIER_FAILED", "RESERVE"],
+      ["COMEBACK_PENDING", "COMEBACK_GRANTED"],
+      ["REGION_LOCKED", "REGION_UNLOCKED"],
+      ["VEHICLE_DAMAGED", "VEHICLE_REPAIRED"]
+    ];
+
+    for (const [previousState, targetState] of validTransitions) {
+      assert.equal(
+        isLegalStateTransition(previousState, targetState),
+        true,
+        `${previousState} -> ${targetState} must be legal`
+      );
+    }
+
+    const invalidTransitions = [
+      ["DISCOVERED", "COMEBACK_GRANTED"],
+      ["QUALIFIER_PASSED", "RESERVE"],
+      ["DISQUALIFIED", "COMEBACK_PENDING"],
+      ["REGION_LOCKED", "QUALIFIER_PASSED"],
+      ["VEHICLE_DAMAGED", "WILD_CARD_GRANTED"]
+    ];
+
+    for (const [previousState, targetState] of invalidTransitions) {
+      assert.equal(
+        isLegalStateTransition(previousState, targetState),
+        false,
+        `${previousState} -> ${targetState} must NOT be legal`
+      );
+    }
+  }
+
+  // Illegal transition end-to-end through the outline validator
+  // (previous_state -> target_state both real states, but the
+  // transition itself is never allowed).
+  {
+    const outline = makeOutline({
+      canon_state_impact: {
+        state: "PROPOSED_STATE_CHANGE",
+        target_state: "RESERVE",
+        entity_type: "DRIVER",
+        previous_state: "QUALIFIER_PASSED",
+        evidence_refs: ["vehicle:1"],
+        reason: "reason"
+      }
+    });
+
+    const result = validateOutline(outline, {
+      evidenceIds: new Set(["vehicle:1"]),
+      noPersonSignal: false
+    });
+
+    assert.equal(result.validation_status, "BLOCKED");
+    assert.ok(
+      result.issues.some(i => i.code === "STATE_TRANSITION_INVALID")
+    );
+  }
+
+  // Missing previous_state for a non-initial state rejected.
+  {
+    const outline = makeOutline({
+      canon_state_impact: {
+        state: "PROPOSED_STATE_CHANGE",
+        target_state: "QUALIFIER_PASSED",
+        entity_type: "DRIVER",
+        previous_state: null,
+        evidence_refs: ["vehicle:1"],
+        reason: "reason"
+      }
+    });
+
+    const result = validateOutline(outline, {
+      evidenceIds: new Set(["vehicle:1"]),
+      noPersonSignal: false
+    });
+
+    assert.equal(result.validation_status, "BLOCKED");
+    assert.ok(
+      result.issues.some(i => i.code === "STATE_TRANSITION_INVALID")
+    );
+  }
+
+  // Wrong entity_type for the target_state rejected.
+  {
+    const outline = makeOutline({
+      canon_state_impact: {
+        state: "PROPOSED_STATE_CHANGE",
+        target_state: "VEHICLE_DAMAGED",
+        entity_type: "DRIVER",
+        previous_state: null,
+        evidence_refs: ["vehicle:1"],
+        reason: "reason"
+      }
+    });
+
+    const result = validateOutline(outline, {
+      evidenceIds: new Set(["vehicle:1"]),
+      noPersonSignal: false
+    });
+
+    assert.equal(result.validation_status, "BLOCKED");
+    assert.ok(
+      result.issues.some(i => i.code === "STATE_TRANSITION_INVALID")
+    );
+  }
+
+  // Unknown target_state (not in the APEX allowlist) rejected --
+  // regression guard, already covered above but re-asserted via
+  // isLegalStateTransition/APEX_STATE_ALLOWLIST directly too.
+  {
+    assert.equal(
+      APEX_STATE_ALLOWLIST.includes("CHAMPION_CROWNED"),
+      false
     );
   }
 
