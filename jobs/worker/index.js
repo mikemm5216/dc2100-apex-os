@@ -21,6 +21,10 @@ const {
   processNextFusionRun
 } = require("../../lib/fusion/engine");
 
+const {
+  pollAutoFlowQueue
+} = require("../../lib/autoflow/worker");
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL
 });
@@ -208,9 +212,10 @@ async function pollCountryNewsQueue() {
   }
 }
 
-// Person Radar queue: manual Run Now only. The worker
-// never queues person runs by itself — no cron, no
-// scheduler, no AutoFlow.
+// Person Radar queue: manual Run Now, or queued by the
+// AutoFlow poller as the PERSON_RADAR step. Either way this
+// poller only executes whatever run is already QUEUED — it
+// never decides on its own to start one.
 async function pollPersonRadarQueue() {
   try {
     const result =
@@ -327,11 +332,11 @@ async function pollPersonRadarQueue() {
   }
 }
 
-// Fusion queue: manual Run Now only, same as Person Radar.
-// Fusion never fetches new evidence — it only aggregates
-// what the other three queues already persisted, so it
-// carries no schema-waiting fallback of its own beyond the
-// standard 42P01 guard.
+// Fusion queue: manual Run Now, or queued by the AutoFlow
+// poller as the FUSION step. Fusion never fetches new
+// evidence — it only aggregates what the other queues
+// already persisted, so it carries no schema-waiting
+// fallback of its own beyond the standard 42P01 guard.
 async function pollFusionQueue() {
   try {
     const result = await processNextFusionRun(
@@ -515,7 +520,24 @@ async function pollVehicleScannerQueue() {
   return processedRun;
 }
 
-// Simple fair rotation across the four queues inside the
+// AutoFlow queue: advances the orchestrator by one tick —
+// creating or observing the current Domain run for the
+// active AutoFlow step. It never runs Domain logic itself;
+// each Domain run it creates is picked up and executed by
+// that Domain's own poller below. A NO_CHANGE tick (AutoFlow
+// is still waiting on an in-flight Domain run) must report
+// unprocessed so the Domain poller gets a turn in the same
+// cycle instead of being starved.
+function pollAutoFlowQueueTick() {
+  return pollAutoFlowQueue({
+    pool,
+    workerId,
+    log,
+    logError
+  });
+}
+
+// Simple fair rotation across the five queues inside the
 // single polling loop. Each poll starts at a rotating
 // cursor and stops after the first queue that processed a
 // run, so no queue can permanently starve another.
@@ -523,7 +545,8 @@ const QUEUE_POLLERS = [
   pollVehicleScannerQueue,
   pollCountryNewsQueue,
   pollPersonRadarQueue,
-  pollFusionQueue
+  pollFusionQueue,
+  pollAutoFlowQueueTick
 ];
 
 let queueCursor = 0;
