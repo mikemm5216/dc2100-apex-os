@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const http = require("node:http");
 const { URLSearchParams } = require("node:url");
 
 const {
@@ -20,6 +21,60 @@ const {
 } = require("../lib/story/engine");
 
 const { validateOutline } = require("../lib/story/validators");
+const { createRequestHandler } = require("../apps/api/src/server");
+
+async function withHttpServer(pool, fn) {
+  const server = http.createServer(createRequestHandler(pool));
+
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+
+  try {
+    await fn(server.address().port);
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close(error => (error ? reject(error) : resolve()));
+    });
+  }
+}
+
+function httpRequest(port, path, { method = "GET", headers = {}, body } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        hostname: "127.0.0.1",
+        port,
+        path,
+        method,
+        headers
+      },
+      res => {
+        const chunks = [];
+
+        res.on("data", chunk => chunks.push(chunk));
+        res.on("end", () => {
+          const rawBody = Buffer.concat(chunks).toString("utf8");
+          resolve({
+            statusCode: res.statusCode,
+            headers: res.headers,
+            rawBody,
+            body: rawBody ? JSON.parse(rawBody) : null
+          });
+        });
+      }
+    );
+
+    req.on("error", reject);
+
+    if (body !== undefined) {
+      req.write(body);
+    }
+
+    req.end();
+  });
+}
 
 // ---------------------------------------------------------
 // In-memory mock database. Dispatches on SQL text substrings,
@@ -199,7 +254,20 @@ function createMockDb({ candidates = {} } = {}) {
       trimmed.includes("FOR UPDATE")
     ) {
       const row = state.runs.get(Number(values[0]));
-      return row ? { rows: [{ ...row }], rowCount: 1 } : { rows: [], rowCount: 0 };
+
+      if (!row) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      const leaseIsValid =
+        row.lease_expires_at !== null &&
+        row.lease_expires_at !== undefined &&
+        new Date(row.lease_expires_at) > new Date();
+
+      return {
+        rows: [{ ...row, lease_is_valid: leaseIsValid }],
+        rowCount: 1
+      };
     }
 
     if (trimmed === "SELECT * FROM story_pipeline_runs WHERE id = $1") {
@@ -721,6 +789,82 @@ const VALID_GATE1_BODY = {
 };
 
 async function run() {
+  // -------------------------------------------------------
+  // Story HTTP authentication. Exercise the real request
+  // handler so route scoping and auth-before-body-parsing are
+  // covered in addition to the API handler unit tests below.
+  // -------------------------------------------------------
+  {
+    const storyTokenEnv = "STORY_ADMIN_TOKEN";
+    const originalToken = process.env[storyTokenEnv];
+
+    try {
+      await withHttpServer({}, async port => {
+        delete process.env[storyTokenEnv];
+
+        const unconfigured = await httpRequest(port, "/api/story/runs");
+        assert.equal(unconfigured.statusCode, 503);
+        assert.equal(unconfigured.body.error, "STORY_AUTH_NOT_CONFIGURED");
+
+        process.env[storyTokenEnv] = "test-story-admin-token";
+
+        const missing = await httpRequest(port, "/api/story/runs");
+        assert.equal(missing.statusCode, 401);
+        assert.equal(missing.body.error, "UNAUTHORIZED");
+
+        const wrong = await httpRequest(port, "/api/story/runs", {
+          headers: { Authorization: "Bearer wrong" }
+        });
+        assert.equal(wrong.statusCode, 401);
+        assert.equal(
+          wrong.rawBody.includes(process.env[storyTokenEnv]),
+          false,
+          "Auth failures must never echo the configured token"
+        );
+
+        const malformedBody = await httpRequest(port, "/api/story/runs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{not-json"
+        });
+        assert.equal(
+          malformedBody.statusCode,
+          401,
+          "Authentication must run before Story request-body parsing"
+        );
+
+        const authenticated = await httpRequest(port, "/api/story/unknown", {
+          headers: {
+            Authorization: `Bearer ${process.env[storyTokenEnv]}`
+          }
+        });
+        assert.equal(authenticated.statusCode, 404);
+
+        const health = await httpRequest(port, "/health");
+        assert.equal(health.statusCode, 200);
+
+        const similarlyNamedRoute = await httpRequest(port, "/api/storyboard");
+        assert.equal(similarlyNamedRoute.statusCode, 404);
+
+        delete process.env[storyTokenEnv];
+        const preflight = await httpRequest(port, "/api/story/runs", {
+          method: "OPTIONS"
+        });
+        assert.equal(preflight.statusCode, 204);
+        assert.match(
+          preflight.headers["access-control-allow-headers"],
+          /Authorization/
+        );
+      });
+    } finally {
+      if (originalToken === undefined) {
+        delete process.env[storyTokenEnv];
+      } else {
+        process.env[storyTokenEnv] = originalToken;
+      }
+    }
+  }
+
   // -------------------------------------------------------
   // Create run.
   // -------------------------------------------------------

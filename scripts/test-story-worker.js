@@ -10,8 +10,10 @@ const {
   executeScriptsGeneration,
   regenerateStage,
   resumeRun,
-  cancelRun
+  cancelRun,
+  withStageOwnership
 } = require("../lib/story/engine");
+const { CanonError } = require("../lib/story/canon");
 
 // ---------------------------------------------------------
 // No real Postgres connection is used anywhere in this file.
@@ -186,7 +188,20 @@ function createMockStoryPool(initialRows, { directions = [], outlines = [] } = {
       trimmed.includes("FOR UPDATE")
     ) {
       const row = state.runs.get(Number(values[0]));
-      return row ? { rows: [{ ...row }], rowCount: 1 } : { rows: [], rowCount: 0 };
+
+      if (!row) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      const leaseIsValid =
+        row.lease_expires_at !== null &&
+        row.lease_expires_at !== undefined &&
+        new Date(row.lease_expires_at) > new Date();
+
+      return {
+        rows: [{ ...row, lease_is_valid: leaseIsValid }],
+        rowCount: 1
+      };
     }
 
     if (trimmed === "SELECT * FROM story_pipeline_runs WHERE id = $1") {

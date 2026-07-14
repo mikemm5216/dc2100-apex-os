@@ -837,6 +837,284 @@ function run() {
     );
   }
 
+  // =========================================================
+  // Production Hardening (PR #9 final round): Proposed State
+  // Change fixed schema, enforced by validateProposedStateChangeShape
+  // and applied to direction.proposed_state_changes[],
+  // outline.canon_state_impact, and script.proposed_state_changes[].
+  // =========================================================
+
+  const REQUIRED_STATE_CHANGE_FIELDS = [
+    "previous_state",
+    "target_state",
+    "entity_type",
+    "reason",
+    "evidence_refs"
+  ];
+
+  function fullStateChange(overrides = {}) {
+    return {
+      state: "PROPOSED_STATE_CHANGE",
+      previous_state: "DISCOVERED",
+      target_state: "CANDIDATE_APPROVED",
+      entity_type: "DRIVER",
+      reason: "reason",
+      evidence_refs: ["vehicle:1"],
+      ...overrides
+    };
+  }
+
+  // -------------------------------------------------------
+  // Direction BLOCKED: a proposed_state_changes entry with only
+  // `state` is missing every other required field.
+  // -------------------------------------------------------
+  {
+    const direction = makeDirection("VEHICLE_POWER", {
+      proposed_state_changes: [{ state: "PROPOSED_STATE_CHANGE" }]
+    });
+
+    const issues = validateDirectionShape(direction);
+
+    for (const field of REQUIRED_STATE_CHANGE_FIELDS) {
+      assert.ok(
+        issues.some(
+          i =>
+            i.code === "STATE_CHANGE_FIELD_MISSING" &&
+            i.path === `proposed_state_changes[0].${field}`
+        ),
+        `Direction shape must flag missing ${field}`
+      );
+    }
+
+    // The same malformed entry also fails the Canon Validator
+    // independently (it is what actually blocks the per-direction
+    // validation_status persisted for Gate 2 selection).
+    const batchResult = validateDirectionBatch(
+      [
+        direction,
+        makeDirection("COUNTRY_CONFLICT"),
+        makeDirection("PERSON_CULTURE"),
+        makeDirection("APEX_PROGRESSION")
+      ],
+      { evidenceIds: new Set(["vehicle:1"]), noPersonSignal: false }
+    );
+
+    assert.equal(batchResult.perDirection[0].validation_status, "BLOCKED");
+  }
+
+  // Direction BLOCKED: each single missing field, one at a time.
+  for (const field of REQUIRED_STATE_CHANGE_FIELDS) {
+    const change = fullStateChange();
+    delete change[field];
+
+    const direction = makeDirection("VEHICLE_POWER", {
+      proposed_state_changes: [change]
+    });
+
+    const issues = validateDirectionShape(direction);
+
+    assert.ok(
+      issues.some(
+        i =>
+          i.code === "STATE_CHANGE_FIELD_MISSING" &&
+          i.path === `proposed_state_changes[0].${field}`
+      ),
+      `Direction shape must flag missing ${field} alone`
+    );
+  }
+
+  // Direction BLOCKED: evidence_refs present but not an array.
+  {
+    const direction = makeDirection("VEHICLE_POWER", {
+      proposed_state_changes: [
+        fullStateChange({ evidence_refs: "not-an-array" })
+      ]
+    });
+
+    const issues = validateDirectionShape(direction);
+
+    assert.ok(
+      issues.some(
+        i =>
+          i.code === "STATE_CHANGE_FIELD_MISSING" &&
+          i.path === "proposed_state_changes[0].evidence_refs"
+      )
+    );
+  }
+
+  // -------------------------------------------------------
+  // Script BLOCKED: mirror every Direction case above via
+  // validateScriptShape.
+  // -------------------------------------------------------
+  {
+    const script = makeScript("VEHICLE_FIRST", {
+      proposed_state_changes: [{ state: "PROPOSED_STATE_CHANGE" }]
+    });
+
+    const issues = validateScriptShape(script);
+
+    for (const field of REQUIRED_STATE_CHANGE_FIELDS) {
+      assert.ok(
+        issues.some(
+          i =>
+            i.code === "STATE_CHANGE_FIELD_MISSING" &&
+            i.path === `proposed_state_changes[0].${field}`
+        ),
+        `Script shape must flag missing ${field}`
+      );
+    }
+
+    const result = validateScript(script, {
+      evidenceIds: new Set(["vehicle:1"]),
+      noPersonSignal: false
+    });
+
+    assert.equal(result.validation_status, "BLOCKED");
+  }
+
+  for (const field of REQUIRED_STATE_CHANGE_FIELDS) {
+    const change = fullStateChange();
+    delete change[field];
+
+    const script = makeScript("VEHICLE_FIRST", {
+      proposed_state_changes: [change]
+    });
+
+    const issues = validateScriptShape(script);
+
+    assert.ok(
+      issues.some(
+        i =>
+          i.code === "STATE_CHANGE_FIELD_MISSING" &&
+          i.path === `proposed_state_changes[0].${field}`
+      ),
+      `Script shape must flag missing ${field} alone`
+    );
+  }
+
+  {
+    const script = makeScript("VEHICLE_FIRST", {
+      proposed_state_changes: [
+        fullStateChange({ evidence_refs: "not-an-array" })
+      ]
+    });
+
+    const issues = validateScriptShape(script);
+
+    assert.ok(
+      issues.some(
+        i =>
+          i.code === "STATE_CHANGE_FIELD_MISSING" &&
+          i.path === "proposed_state_changes[0].evidence_refs"
+      )
+    );
+  }
+
+  // -------------------------------------------------------
+  // Outline BLOCKED: canon_state_impact missing the
+  // previous_state property entirely (distinct from previous_state
+  // being explicitly null, which is a Canon Vocabulary question).
+  // -------------------------------------------------------
+  {
+    const outline = makeOutline({
+      canon_state_impact: fullStateChange()
+    });
+    delete outline.canon_state_impact.previous_state;
+
+    const issues = validateOutlineShape(outline);
+
+    assert.ok(
+      issues.some(
+        i =>
+          i.code === "STATE_CHANGE_FIELD_MISSING" &&
+          i.path === "canon_state_impact.previous_state"
+      )
+    );
+  }
+
+  // Outline BLOCKED: entity_type incompatible with target_state.
+  {
+    const outline = makeOutline({
+      canon_state_impact: fullStateChange({
+        target_state: "RESOURCE_ACQUIRED",
+        entity_type: "DRIVER",
+        previous_state: null
+      })
+    });
+
+    const result = validateOutline(outline, {
+      evidenceIds: new Set(["vehicle:1"]),
+      noPersonSignal: false
+    });
+
+    assert.equal(result.validation_status, "BLOCKED");
+    assert.ok(result.issues.some(i => i.code === "STATE_TRANSITION_INVALID"));
+  }
+
+  // Outline BLOCKED: illegal transition (DISQUALIFIED is terminal
+  // -- it can never move to COMEBACK_PENDING).
+  {
+    const outline = makeOutline({
+      canon_state_impact: fullStateChange({
+        target_state: "COMEBACK_PENDING",
+        entity_type: "DRIVER",
+        previous_state: "DISQUALIFIED"
+      })
+    });
+
+    const result = validateOutline(outline, {
+      evidenceIds: new Set(["vehicle:1"]),
+      noPersonSignal: false
+    });
+
+    assert.equal(result.validation_status, "BLOCKED");
+    assert.ok(result.issues.some(i => i.code === "STATE_TRANSITION_INVALID"));
+  }
+
+  // -------------------------------------------------------
+  // Valid Proposed State Change transitions must PASS end to
+  // end (Structure Validator + Canon Validator combined).
+  // -------------------------------------------------------
+  const validStateChangeCases = [
+    {
+      previous_state: "DISCOVERED",
+      target_state: "CANDIDATE_APPROVED",
+      entity_type: "DRIVER"
+    },
+    {
+      previous_state: "QUALIFIER_ENTERED",
+      target_state: "QUALIFIER_PASSED",
+      entity_type: "DRIVER"
+    },
+    {
+      previous_state: null,
+      target_state: "RESOURCE_ACQUIRED",
+      entity_type: "RESOURCE"
+    },
+    {
+      previous_state: null,
+      target_state: "TEAM_CHANGED",
+      entity_type: "TEAM"
+    }
+  ];
+
+  for (const testCase of validStateChangeCases) {
+    const outline = makeOutline({
+      canon_state_impact: fullStateChange(testCase)
+    });
+
+    const result = validateOutline(outline, {
+      evidenceIds: new Set(["vehicle:1"]),
+      noPersonSignal: false
+    });
+
+    assert.equal(
+      result.validation_status,
+      "PASS",
+      `${testCase.previous_state} -> ${testCase.target_state} (${testCase.entity_type}) must PASS: ${JSON.stringify(result.issues)}`
+    );
+  }
+
   console.log("TASK 3.4E STORY CORE TESTS PASSED");
 }
 
