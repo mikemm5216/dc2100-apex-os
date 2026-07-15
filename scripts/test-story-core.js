@@ -2489,6 +2489,514 @@ function run() {
 
   console.log("REVIEW FIX STORY CORE TESTS PASSED: validator negation bound to the individual claim it directly modifies, cross-claim/cross-subject negation rejected");
 
+  // =========================================================
+  // Full Canon/IP deterministic validator hardening (PR #12,
+  // "harden canon claim validators"). Every affirmative-narrative
+  // detector (Traffic, Dome Controls, Dome Scope, Underground
+  // Mandatory, Disqualified Comeback, Public Challenge Auto-Strip,
+  // Official Partnership) now goes through the same discipline:
+  // narrative-only scanning, compliance-field exclusion, claim
+  // isolation, direct negation binding, all occurrences checked.
+  // Mention-only checks (CANON_STATE_COMMITTED) stay strict and are
+  // never negation-excused. Structured checks (official_partnership_
+  // implied, proposed-state transitions) stay fail-closed.
+  // =========================================================
+
+  function assertCanonBlocked(text, code, label) {
+    assertBlocked(
+      () => makeOutline({ outcome: text }),
+      () => makeScript("VEHICLE_FIRST", { hook: text }),
+      code,
+      label
+    );
+  }
+
+  function assertCanonPass(text, label) {
+    assertPass(
+      () => makeOutline({ outcome: text }),
+      () => makeScript("VEHICLE_FIRST", { hook: text }),
+      label
+    );
+  }
+
+  function assertCanonComplianceEchoPass(text, label) {
+    assertPass(
+      () => makeOutline({ canon_constraints: [text] }),
+      () => makeScript("VEHICLE_FIRST", { canon_constraints: [text] }),
+      label
+    );
+  }
+
+  // ---- A. Traffic Decides Result ----
+  {
+    const blockCases = [
+      "Traffic is not a concern and decides the race result.",
+      "Popularity is not measured and determines the winner.",
+      "Views are not counted yet determine the outcome.",
+      "Views determine the race result.",
+      "Traffic does not affect lap time while audience votes decide the outcome."
+    ];
+    blockCases.forEach((text, i) =>
+      assertCanonBlocked(text, "TRAFFIC_DECIDES_RESULT", `A-BLOCK-${i + 1}`)
+    );
+
+    const passCases = [
+      "Traffic does not decide the race result.",
+      "Traffic does not determine the race result.",
+      "Views do not determine the result.",
+      "Popularity never determines the winner.",
+      "Audience votes cannot crown the champion.",
+      "Subscriber count must not decide the outcome."
+    ];
+    passCases.forEach((text, i) => assertCanonPass(text, `A-PASS-${i + 1}`));
+
+    assertCanonComplianceEchoPass(
+      "Traffic/popularity must never decide the race result.",
+      "A-compliance-echo"
+    );
+  }
+
+  // ---- B. Dome Controls Results ----
+  {
+    const passCases = [
+      "The Dome Authority does not control race results.",
+      "The Dome Authority cannot determine the winner.",
+      "The Dome Authority never overturns scoring."
+    ];
+    passCases.forEach((text, i) => assertCanonPass(text, `B-PASS-${i + 1}`));
+
+    const blockCases = [
+      "The Dome Authority controls race results.",
+      "The Dome Authority determines the winner.",
+      "The Dome Authority is not trusted and controls the outcome.",
+      "The Dome Authority does not manage safety but decides scoring."
+    ];
+    blockCases.forEach((text, i) =>
+      assertCanonBlocked(text, "DOME_CONTROLS_RESULTS", `B-BLOCK-${i + 1}`)
+    );
+
+    assertCanonComplianceEchoPass(
+      "The Dome Authority must never control race results or scoring.",
+      "B-compliance-echo"
+    );
+  }
+
+  // ---- C. Dome Non-Europe Scope ----
+  {
+    const passCases = [
+      "The Dome Authority has no safety-review role in East Asia.",
+      "The Dome Authority cannot intervene in North American infrastructure.",
+      "Dome Authority jurisdiction does not extend to Region Asia.",
+      "Region Europe is its only infrastructure-review scope."
+    ];
+    passCases.forEach((text, i) => assertCanonPass(text, `C-PASS-${i + 1}`));
+
+    const blockCases = [
+      "The Dome Authority conducts safety reviews in East Asia.",
+      "The Dome Authority controls infrastructure in North America.",
+      "Dome Authority jurisdiction extends to Region Asia.",
+      "The Dome Authority is not popular but manages African infrastructure."
+    ];
+    blockCases.forEach((text, i) =>
+      assertCanonBlocked(text, "DOME_SCOPE_VIOLATION", `C-BLOCK-${i + 1}`)
+    );
+
+    assertCanonComplianceEchoPass(
+      "Dome Authority intervention is scoped to Region Europe only.",
+      "C-compliance-echo"
+    );
+  }
+
+  // ---- D. Underground Circuit Mandatory ----
+  {
+    const passCases = [
+      "Underground Circuits are not required.",
+      "Underground Circuits are never mandatory.",
+      "Underground Circuits are an optional parallel pathway.",
+      "No entrant is required to use an Underground Circuit."
+    ];
+    passCases.forEach((text, i) => assertCanonPass(text, `D-PASS-${i + 1}`));
+
+    const blockCases = [
+      "Underground Circuits are required.",
+      "Underground Circuits are mandatory.",
+      "Underground Circuits are the only way to qualify.",
+      "Every entrant must complete an Underground Circuit."
+    ];
+    blockCases.forEach((text, i) =>
+      assertCanonBlocked(text, "UNDERGROUND_NOT_PARALLEL_PATHWAY", `D-BLOCK-${i + 1}`)
+    );
+
+    assertCanonComplianceEchoPass(
+      "Underground Circuits are never a required step of the main hierarchy.",
+      "D-compliance-echo"
+    );
+  }
+
+  // ---- E. Disqualified Same-Season Comeback ----
+  {
+    const passCases = [
+      "A disqualified entrant cannot re-enter in the same season.",
+      "A disqualified driver is never reinstated in the same season.",
+      "Disqualified entrants have no comeback route during the same season.",
+      "A same-season comeback is forbidden after disqualification."
+    ];
+    passCases.forEach((text, i) => assertCanonPass(text, `E-PASS-${i + 1}`));
+
+    const blockCases = [
+      "A disqualified entrant can re-enter in the same season.",
+      "The driver was disqualified but returned through a comeback that same season.",
+      "A disqualified driver is reinstated in the same season.",
+      "The driver was not popular, but after being disqualified he re-entered in the same season."
+    ];
+    blockCases.forEach((text, i) =>
+      assertCanonBlocked(text, "DISQUALIFIED_COMEBACK_SAME_SEASON", `E-BLOCK-${i + 1}`)
+    );
+
+    assertCanonComplianceEchoPass(
+      "A disqualified entrant may never return via Reserve, Wild Card, or Comeback within the same season.",
+      "E-compliance-echo"
+    );
+  }
+
+  // ---- F. Public Challenge Auto-Strip ----
+  {
+    const passCases = [
+      "A public challenge does not automatically strip the incumbent.",
+      "A public challenge never automatically revokes qualification.",
+      "Winning a public challenge alone cannot disqualify the incumbent.",
+      "The incumbent keeps qualification unless a separate rule applies."
+    ];
+    passCases.forEach((text, i) => assertCanonPass(text, `F-PASS-${i + 1}`));
+
+    const blockCases = [
+      "A public challenge automatically strips the incumbent.",
+      "Winning instantly revokes the incumbent's qualification.",
+      "The incumbent is automatically disqualified after a public challenge.",
+      "The challenger is not popular, but victory automatically removes the incumbent."
+    ];
+    blockCases.forEach((text, i) =>
+      assertCanonBlocked(text, "PUBLIC_CHALLENGE_AUTO_STRIPS_INCUMBENT", `F-BLOCK-${i + 1}`)
+    );
+
+    assertCanonComplianceEchoPass(
+      "A public challenge victory never automatically strips the incumbent's existing qualification.",
+      "F-compliance-echo"
+    );
+  }
+
+  // ---- G. Era IX / Dome Sole Responsible ----
+  // Auditing surfaced two real wording bugs (missing \s+ between the
+  // modal phrase and the participle in ERA_IX_DEFINITIVE_PATTERN; a
+  // double-"the" requirement in DOME_SOLE_RESPONSIBLE_PATTERN that
+  // natural phrasing like "the sole cause" can never satisfy) --
+  // fixed independently of negation handling, which was already
+  // correct.
+  {
+    const passCases = [
+      "Era IX is not definitively resolved.",
+      "The Silence remains unresolved.",
+      "The Dome Authority is not the sole cause.",
+      "The Dome Authority cannot be conclusively blamed alone."
+    ];
+    passCases.forEach((text, i) => assertCanonPass(text, `G-PASS-${i + 1}`));
+
+    const blockCases = [
+      "Era IX is definitively resolved.",
+      "The Silence has been conclusively solved.",
+      "The Dome Authority is the sole cause.",
+      "The Dome Authority was solely responsible."
+    ];
+    blockCases.forEach((text, i) =>
+      assertCanonBlocked(text, "ERA_IX_PREMATURE_RESOLUTION", `G-BLOCK-${i + 1}`)
+    );
+  }
+
+  // ---- H. CANON_STATE_COMMITTED self-poisoning ----
+  {
+    assertCanonBlocked(
+      "The system attempted CANON_STATE_COMMITTED directly.",
+      "CANON_STATE_COMMITTED_FORBIDDEN",
+      "H1 (narrative occurrence)"
+    );
+
+    // Structured state field itself carrying the forbidden literal
+    // must still BLOCK -- narrativeText walks canon_state_impact's
+    // own field values too, since it is not a compliance-reporting
+    // field.
+    assertBlocked(
+      () =>
+        makeOutline({
+          canon_state_impact: {
+            state: "PROPOSED_STATE_CHANGE",
+            target_state: "CANON_STATE_COMMITTED",
+            entity_type: "DRIVER",
+            previous_state: "CANDIDATE_APPROVED",
+            evidence_refs: ["vehicle:1"],
+            reason: "reason"
+          }
+        }),
+      () =>
+        makeScript("VEHICLE_FIRST", {
+          proposed_state_changes: [
+            {
+              state: "PROPOSED_STATE_CHANGE",
+              target_state: "CANON_STATE_COMMITTED",
+              entity_type: "DRIVER",
+              previous_state: "CANDIDATE_APPROVED",
+              evidence_refs: ["vehicle:1"],
+              reason: "reason"
+            }
+          ]
+        }),
+      "CANON_STATE_COMMITTED_FORBIDDEN",
+      "H2 (structured state field occurrence)"
+    );
+
+    // Compliance-reporting fields restating the rule must PASS.
+    {
+      const outline = makeOutline({
+        retry_feedback: { note: "Never output CANON_STATE_COMMITTED." }
+      });
+      assert.equal(
+        validateOutline(outline, BASE_OUTLINE_CONTEXT).validation_status,
+        "PASS",
+        "H3 (Outline retry_feedback echo): expected PASS"
+      );
+
+      const script = makeScript("VEHICLE_FIRST", {
+        ip_safety_notes: ["Never output CANON_STATE_COMMITTED."]
+      });
+      assert.equal(
+        validateScript(script, BASE_SCRIPT_CONTEXT).validation_status,
+        "PASS",
+        "H3 (Script ip_safety_notes echo): expected PASS"
+      );
+    }
+
+    {
+      const outline = makeOutline({
+        canon_constraints: ["Must never contain CANON_STATE_COMMITTED."]
+      });
+      assert.equal(
+        validateOutline(outline, BASE_OUTLINE_CONTEXT).validation_status,
+        "PASS",
+        "H4 (Outline canon_constraints echo): expected PASS"
+      );
+    }
+
+    // One compliance occurrence + one real narrative occurrence must
+    // still BLOCK -- the compliance echo never suppresses a real
+    // violation elsewhere in the same artifact.
+    assertCanonBlocked(
+      "The state was set to CANON_STATE_COMMITTED directly, which the rule forbids.",
+      "CANON_STATE_COMMITTED_FORBIDDEN",
+      "H5 (compliance + narrative occurrence)"
+    );
+  }
+
+  // ---- I. Proposed-State Entry Discovery Scope ----
+  {
+    // 1. Formal entry runs full state validation (illegal transition
+    // still BLOCKED) -- already covered by the CANON_STATE_TRANSITIONS
+    // regression block above; re-affirmed here for locality.
+    assertBlocked(
+      () =>
+        makeOutline({
+          canon_state_impact: {
+            state: "PROPOSED_STATE_CHANGE",
+            target_state: "RESERVE",
+            entity_type: "DRIVER",
+            previous_state: "QUALIFIER_PASSED",
+            evidence_refs: ["vehicle:1"],
+            reason: "reason"
+          }
+        }),
+      () =>
+        makeScript("VEHICLE_FIRST", {
+          proposed_state_changes: [
+            {
+              state: "PROPOSED_STATE_CHANGE",
+              target_state: "RESERVE",
+              entity_type: "DRIVER",
+              previous_state: "QUALIFIER_PASSED",
+              evidence_refs: ["vehicle:1"],
+              reason: "reason"
+            }
+          ]
+        }),
+      "STATE_TRANSITION_INVALID",
+      "I1 (formal entry, illegal transition still BLOCKED)"
+    );
+
+    // 2. Narrative metadata reusing the key name `state` outside the
+    // formal container must never be read as a Canon state change.
+    {
+      const outline = makeOutline({ narrative_mood: { state: "tense" } });
+      assert.equal(
+        validateOutline(outline, BASE_OUTLINE_CONTEXT).validation_status,
+        "PASS",
+        "I2 (Outline narrative metadata `state` key ignored): expected PASS"
+      );
+
+      const script = makeScript("VEHICLE_FIRST", {
+        narrative_mood: { state: "tense" }
+      });
+      assert.equal(
+        validateScript(script, BASE_SCRIPT_CONTEXT).validation_status,
+        "PASS",
+        "I2 (Script narrative metadata `state` key ignored): expected PASS"
+      );
+    }
+
+    // 3. Evidence metadata reusing the key name `target_state`
+    // outside the formal container must never be read as a Canon
+    // state change.
+    {
+      const outline = makeOutline({
+        citation_meta: { target_state: "external_reference" }
+      });
+      assert.equal(
+        validateOutline(outline, BASE_OUTLINE_CONTEXT).validation_status,
+        "PASS",
+        "I3 (Outline evidence metadata `target_state` key ignored): expected PASS"
+      );
+
+      const script = makeScript("VEHICLE_FIRST", {
+        citation_meta: { target_state: "external_reference" }
+      });
+      assert.equal(
+        validateScript(script, BASE_SCRIPT_CONTEXT).validation_status,
+        "PASS",
+        "I3 (Script evidence metadata `target_state` key ignored): expected PASS"
+      );
+    }
+
+    // 4. Formal entry missing a required field still fails closed.
+    {
+      const outline = makeOutline();
+      delete outline.canon_state_impact.previous_state;
+      const result = validateOutline(outline, BASE_OUTLINE_CONTEXT);
+      assert.equal(result.validation_status, "BLOCKED", "I4 (fail-closed on missing field)");
+      assert.ok(result.issues.some(i => i.code === "STATE_CHANGE_FIELD_MISSING"));
+    }
+
+    // 5. Formal entry with a genuinely illegal transition still
+    // BLOCKED (duplicate of I1's intent, kept as an independent
+    // regression anchor).
+    assertBlocked(
+      () =>
+        makeOutline({
+          canon_state_impact: {
+            state: "PROPOSED_STATE_CHANGE",
+            target_state: "COMEBACK_PENDING",
+            entity_type: "DRIVER",
+            previous_state: "DISQUALIFIED",
+            evidence_refs: ["vehicle:1"],
+            reason: "reason"
+          }
+        }),
+      () =>
+        makeScript("VEHICLE_FIRST", {
+          proposed_state_changes: [
+            {
+              state: "PROPOSED_STATE_CHANGE",
+              target_state: "COMEBACK_PENDING",
+              entity_type: "DRIVER",
+              previous_state: "DISQUALIFIED",
+              evidence_refs: ["vehicle:1"],
+              reason: "reason"
+            }
+          ]
+        }),
+      "STATE_TRANSITION_INVALID",
+      "I5 (formal entry, DISQUALIFIED -> COMEBACK_PENDING still BLOCKED)"
+    );
+  }
+
+  // ---- J. Official Partnership (retained + extended) ----
+  {
+    const passCases = [
+      "No official partnership is implied.",
+      "The team operates without an official partnership.",
+      "The team is not officially sponsored by the manufacturer.",
+      "The project is not in partnership with Toyota.",
+      "An official partnership is not implied."
+    ];
+    passCases.forEach((text, i) => {
+      assertPass(
+        () => makeOutline({ outcome: text }),
+        () => makeScript("VEHICLE_FIRST", { hook: text }),
+        `J-PASS-${i + 1}`
+      );
+    });
+
+    const blockCases = [
+      "The team has an official partnership with Toyota.",
+      "The vehicle is officially sponsored by the manufacturer.",
+      "The project is in partnership with Ferrari.",
+      "The car is not damaged and the team has an official partnership.",
+      "No official partnership existed before, but now one is established."
+    ];
+    blockCases.forEach((text, i) => {
+      assertBlocked(
+        () => makeOutline({ outcome: text }),
+        () => makeScript("VEHICLE_FIRST", { hook: text }),
+        "OFFICIAL_PARTNERSHIP_IMPLIED",
+        `J-BLOCK-${i + 1}`
+      );
+    });
+
+    // Structured boolean check remains fail-closed, independent of
+    // any narrative-text change above.
+    {
+      const direction = makeIntegratedDirection("TECHNICAL_SACRIFICE", {
+        vehicle_transformation: {
+          evidence_vehicle: "Real Car X",
+          canon_vehicle_name: "Fictional Vehicle Prime",
+          preserved_traits: ["speed"],
+          changed_traits: ["color"],
+          official_partnership_implied: true
+        }
+      });
+
+      const result = validateDirectionBatch(
+        [
+          direction,
+          makeIntegratedDirection("SURVEILLANCE_TRAP"),
+          makeIntegratedDirection("CULTURAL_LEGACY")
+        ],
+        REGRESSION_CONTEXT
+      );
+
+      assert.equal(result.perDirection[0].validation_status, "BLOCKED", "J-structured");
+      assert.ok(
+        result.perDirection[0].issues.some(
+          i =>
+            i.code === "OFFICIAL_PARTNERSHIP_IMPLIED" &&
+            i.path === "vehicle_transformation.official_partnership_implied"
+        )
+      );
+    }
+  }
+
+  // ---- Mention-only IP checks remain strict, never negation-excused ----
+  // COPYRIGHTED_CHARACTER_REFERENCE and the real-vehicle-brand /
+  // real-person-name structured checks are deliberately untouched by
+  // this hardening pass -- they are mention-only / structured, not
+  // affirmative narrative claims, so no negation logic applies to
+  // them at all.
+  {
+    const outline = makeOutline({
+      outcome: "The character is definitely not Batman in this story."
+    });
+    const result = validateOutline(outline, BASE_OUTLINE_CONTEXT);
+    assert.equal(result.validation_status, "BLOCKED", "Mention-only: expected BLOCKED regardless of negation");
+    assert.ok(result.issues.some(i => i.code === "COPYRIGHTED_CHARACTER_REFERENCE"));
+  }
+
+  console.log("REVIEW FIX STORY CORE TESTS PASSED: full Canon/IP claim-validator hardening (Traffic, Dome Controls, Dome Scope, Underground, Disqualified Comeback, Public Challenge, CANON_STATE_COMMITTED scoping, proposed-state discovery scope, Official Partnership)");
+
   console.log("REVIEW FIX STORY CORE TESTS PASSED: negated canon/IP phrase detection, compliance-field exclusion");
 
   console.log("TASK 3.6 STORY CORE TESTS PASSED: coverage inheritance + continuity validators");
