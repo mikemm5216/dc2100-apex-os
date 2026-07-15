@@ -60,7 +60,7 @@ jobs:
         run: npm ci
 
       - name: Apply migrations 001-015 against a real, disposable Postgres
-        run: npm run migrate
+        run: node scripts/ci-run-migrations.js
 
       - name: Migration 015 real-Postgres acceptance (constraints, uniqueness, rollback)
         run: node scripts/ci-migration-accept.js
