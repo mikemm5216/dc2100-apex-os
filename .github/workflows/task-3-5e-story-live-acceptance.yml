@@ -3,18 +3,8 @@ name: Task 3.5E Story Direction Live Acceptance
 # Manual-only: this exercises real Gemini calls (spends real API quota)
 # and a disposable Postgres service container, never the production
 # database. Trigger from Actions -> this workflow -> Run workflow.
-#
-# workflow_dispatch only becomes visible/callable via the API once this
-# file exists on the default branch, which it does not yet (PR #11 is
-# still Draft). The `push` trigger below is a one-shot bridge scoped to
-# this exact branch so the very next push fires it directly; remove it
-# again once this branch has one real acceptance run recorded, so future
-# unrelated commits don't spend Gemini quota automatically.
 on:
   workflow_dispatch: {}
-  push:
-    branches:
-      - feat/story-direction-integrated-signals-v1
 
 permissions:
   contents: read
