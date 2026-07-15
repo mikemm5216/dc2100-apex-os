@@ -1104,7 +1104,9 @@ async function run() {
   }
 
   // -------------------------------------------------------
-  // Gate 3 valid lock.
+  // Gate 3 valid lock: an Integrated-Signals row (real
+  // signal_contributions/coverage_status/source_direction_ids/
+  // locked_beat_id) with validation_status PASS can be locked.
   // -------------------------------------------------------
   {
     const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
@@ -1112,7 +1114,15 @@ async function run() {
     const runId = created.payload.data.id;
 
     pool._state.runs.get(Number(runId)).status = "AWAITING_OUTLINE_LOCK";
-    pool._state.outlines.set(1, outlineRow(runId, 1));
+    pool._state.outlines.set(
+      1,
+      outlineRow(runId, 1, {
+        signal_contributions: { vehicle: { evidence_refs: ["vehicle:9"] } },
+        coverage_status: { vehicle_signal: "USED" },
+        source_direction_ids: [1],
+        locked_beat_id: "BEAT-04"
+      })
+    );
 
     const result = await lockOutlineHandler(pool, runId, {
       approved_by: "michael",
@@ -1123,6 +1133,38 @@ async function run() {
     assert.equal(result.statusCode, 200);
     assert.equal(result.payload.data.status, "QUEUED_SCRIPTS");
     assert.equal(pool._state.outlines.get(1).locked_by, "michael");
+  }
+
+  // -------------------------------------------------------
+  // Review fix: a legacy (pre-Task-3.6) outline row with stored
+  // validation_status PASS but no coverage provenance must never be
+  // lockable, even though the shape-only check used to accept it.
+  // The run must not advance past AWAITING_OUTLINE_LOCK.
+  // -------------------------------------------------------
+  {
+    const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
+    const created = await createStoryRunHandler(pool, { fusion_candidate_id: 1 }, {});
+    const runId = created.payload.data.id;
+
+    pool._state.runs.get(Number(runId)).status = "AWAITING_OUTLINE_LOCK";
+    pool._state.outlines.set(1, outlineRow(runId, 1));
+
+    const detail = await getStoryRun(pool, runId);
+    assert.equal(detail.payload.data.can_lock_outline, false);
+
+    const result = await lockOutlineHandler(pool, runId, {
+      approved_by: "michael",
+      outline_id: 1
+    });
+
+    assert.equal(result.statusCode, 422);
+    assert.equal(result.payload.error, "LEGACY_COVERAGE_NOT_LOCKABLE");
+    assert.equal(pool._state.outlines.get(1).locked_by, null);
+    assert.equal(
+      pool._state.runs.get(Number(runId)).status,
+      "AWAITING_OUTLINE_LOCK",
+      "a rejected lock must never advance the Story Run state"
+    );
   }
 
   // -------------------------------------------------------
@@ -1146,7 +1188,9 @@ async function run() {
   }
 
   // -------------------------------------------------------
-  // Gate 4 valid lock.
+  // Gate 4 valid lock: an Integrated-Signals row (real
+  // signal_contributions/coverage_status/source_outline_id/
+  // locked_beat_id) with validation_status PASS can be locked.
   // -------------------------------------------------------
   {
     const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
@@ -1154,7 +1198,15 @@ async function run() {
     const runId = created.payload.data.id;
 
     pool._state.runs.get(Number(runId)).status = "AWAITING_SCRIPT_LOCK";
-    pool._state.scripts.set(1, scriptRow(runId, 1));
+    pool._state.scripts.set(
+      1,
+      scriptRow(runId, 1, {
+        signal_contributions: { vehicle: { evidence_refs: ["vehicle:9"] } },
+        coverage_status: { vehicle_signal: "USED" },
+        source_outline_id: 1,
+        locked_beat_id: "BEAT-04"
+      })
+    );
 
     const result = await lockScriptHandler(pool, runId, {
       approved_by: "michael",
@@ -1165,6 +1217,37 @@ async function run() {
     assert.equal(result.statusCode, 200);
     assert.equal(result.payload.data.status, "COMPLETED");
     assert.equal(result.payload.data.selected_script_id, "1");
+  }
+
+  // -------------------------------------------------------
+  // Review fix: a legacy (pre-Task-3.6) script row with stored
+  // validation_status PASS but no coverage provenance must never be
+  // lockable. The run must not advance past AWAITING_SCRIPT_LOCK.
+  // -------------------------------------------------------
+  {
+    const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
+    const created = await createStoryRunHandler(pool, { fusion_candidate_id: 1 }, {});
+    const runId = created.payload.data.id;
+
+    pool._state.runs.get(Number(runId)).status = "AWAITING_SCRIPT_LOCK";
+    pool._state.scripts.set(1, scriptRow(runId, 1));
+
+    const detail = await getStoryRun(pool, runId);
+    assert.equal(detail.payload.data.can_lock_script, false);
+
+    const result = await lockScriptHandler(pool, runId, {
+      approved_by: "michael",
+      script_id: 1
+    });
+
+    assert.equal(result.statusCode, 422);
+    assert.equal(result.payload.error, "LEGACY_COVERAGE_NOT_LOCKABLE");
+    assert.equal(pool._state.scripts.get(1).locked_by, null);
+    assert.equal(
+      pool._state.runs.get(Number(runId)).status,
+      "AWAITING_SCRIPT_LOCK",
+      "a rejected lock must never advance the Story Run state"
+    );
   }
 
   // -------------------------------------------------------

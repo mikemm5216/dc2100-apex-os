@@ -12,7 +12,9 @@ const {
   validateScriptShape,
   validateScriptBatchShape,
   countEnglishWords,
-  computeScriptDuration
+  computeScriptDuration,
+  isIntegratedOutlineCoverage,
+  isIntegratedScriptCoverage
 } = require("../lib/story/schemas");
 
 const {
@@ -1656,6 +1658,89 @@ function run() {
   }
 
   // -------------------------------------------------------
+  // Review fix: person_signal and historical_resonance are USED
+  // together but must be verified independently -- both live under
+  // the same signal_contributions.person.evidence_refs array
+  // (["person:13", "historical_resonance:13"]), so a naive combined
+  // overlap check would let a lone person:13 ref satisfy
+  // historical_resonance too (or vice versa). Each must be checked
+  // against its own id-prefixed refs.
+  // -------------------------------------------------------
+  {
+    const inheritedDirection = makeIntegratedDirection("TECHNICAL_SACRIFICE");
+    const inheritedSignalContributions = inheritedDirection.signal_contributions;
+    const inheritedCoverageStatus = inheritedDirection.coverage_status;
+
+    const baseContext = {
+      evidenceIds: REGRESSION_EVIDENCE_IDS,
+      noPersonSignal: false,
+      inheritedSignalContributions,
+      inheritedCoverageStatus
+    };
+
+    const canonStateImpactWithRegressionEvidence = {
+      state: "PROPOSED_STATE_CHANGE",
+      target_state: "QUALIFIER_ENTERED",
+      entity_type: "DRIVER",
+      previous_state: "CANDIDATE_APPROVED",
+      evidence_refs: ["vehicle:9"],
+      reason: "reason"
+    };
+
+    // person:13 present, historical_resonance:13 missing -> BLOCKED,
+    // and the message must name historical_resonance, not person_signal.
+    const missingHistoricalOutline = makeOutline({
+      canon_state_impact: canonStateImpactWithRegressionEvidence,
+      evidence_map: ["vehicle:9", "country_news:413", "person:13"]
+    });
+    const missingHistoricalResult = validateOutline(
+      missingHistoricalOutline,
+      baseContext
+    );
+    assert.equal(missingHistoricalResult.validation_status, "BLOCKED");
+    assert.ok(
+      missingHistoricalResult.issues.some(
+        i =>
+          i.code === "OUTLINE_COVERAGE_DROPPED" &&
+          i.message.includes("historical_resonance") &&
+          !i.message.includes('"person_signal"')
+      )
+    );
+
+    // historical_resonance:13 present, person:13 missing -> BLOCKED,
+    // and the message must name person_signal, not historical_resonance.
+    const missingPersonOutline = makeOutline({
+      canon_state_impact: canonStateImpactWithRegressionEvidence,
+      evidence_map: ["vehicle:9", "country_news:413", "historical_resonance:13"]
+    });
+    const missingPersonResult = validateOutline(missingPersonOutline, baseContext);
+    assert.equal(missingPersonResult.validation_status, "BLOCKED");
+    assert.ok(
+      missingPersonResult.issues.some(
+        i =>
+          i.code === "OUTLINE_COVERAGE_DROPPED" &&
+          i.message.includes('"person_signal"') &&
+          !i.message.includes("historical_resonance")
+      )
+    );
+
+    // Both present -> PASS.
+    const bothPresentOutline = makeOutline({
+      canon_state_impact: canonStateImpactWithRegressionEvidence,
+      evidence_map: [
+        "vehicle:9",
+        "country_news:413",
+        "person:13",
+        "historical_resonance:13"
+      ]
+    });
+    assert.equal(
+      validateOutline(bothPresentOutline, baseContext).validation_status,
+      "PASS"
+    );
+  }
+
+  // -------------------------------------------------------
   // Script coverage continuity (runScriptCoverageContinuityValidator,
   // wired into validateScript): same rules as Outline, checked
   // independently per variant.
@@ -1709,6 +1794,152 @@ function run() {
         language: "en"
       }).validation_status,
       "PASS"
+    );
+  }
+
+  // -------------------------------------------------------
+  // Review fix: same independent person_signal / historical_resonance
+  // check as the Outline block above, exercised on a Script.
+  // -------------------------------------------------------
+  {
+    const inheritedDirection = makeIntegratedDirection("TECHNICAL_SACRIFICE");
+    const inheritedSignalContributions = inheritedDirection.signal_contributions;
+    const inheritedCoverageStatus = inheritedDirection.coverage_status;
+
+    const baseContext = {
+      evidenceIds: REGRESSION_EVIDENCE_IDS,
+      noPersonSignal: false,
+      language: "en",
+      inheritedSignalContributions,
+      inheritedCoverageStatus
+    };
+
+    function shotsWithEvidence(ref) {
+      return makeShots(6).map(shot => ({ ...shot, evidence_refs: [ref] }));
+    }
+
+    // person:13 present, historical_resonance:13 missing -> BLOCKED,
+    // message must name historical_resonance, not person_signal.
+    const missingHistoricalScript = makeScript("VEHICLE_FIRST", {
+      shots: shotsWithEvidence("vehicle:9"),
+      evidence_map: ["vehicle:9", "country_news:413", "person:13"]
+    });
+    const missingHistoricalResult = validateScript(
+      missingHistoricalScript,
+      baseContext
+    );
+    assert.equal(missingHistoricalResult.validation_status, "BLOCKED");
+    assert.ok(
+      missingHistoricalResult.issues.some(
+        i =>
+          i.code === "SCRIPT_COVERAGE_DROPPED" &&
+          i.message.includes("historical_resonance") &&
+          !i.message.includes('"person_signal"')
+      )
+    );
+
+    // historical_resonance:13 present, person:13 missing -> BLOCKED,
+    // message must name person_signal, not historical_resonance.
+    const missingPersonScript = makeScript("VEHICLE_FIRST", {
+      shots: shotsWithEvidence("vehicle:9"),
+      evidence_map: ["vehicle:9", "country_news:413", "historical_resonance:13"]
+    });
+    const missingPersonResult = validateScript(missingPersonScript, baseContext);
+    assert.equal(missingPersonResult.validation_status, "BLOCKED");
+    assert.ok(
+      missingPersonResult.issues.some(
+        i =>
+          i.code === "SCRIPT_COVERAGE_DROPPED" &&
+          i.message.includes('"person_signal"') &&
+          !i.message.includes("historical_resonance")
+      )
+    );
+
+    // Both present -> PASS.
+    const bothPresentScript = makeScript("VEHICLE_FIRST", {
+      shots: shotsWithEvidence("vehicle:9"),
+      evidence_map: [
+        "vehicle:9",
+        "country_news:413",
+        "person:13",
+        "historical_resonance:13"
+      ]
+    });
+    assert.equal(
+      validateScript(bothPresentScript, baseContext).validation_status,
+      "PASS"
+    );
+  }
+
+  // -------------------------------------------------------
+  // Review fix: isIntegratedOutlineCoverage / isIntegratedScriptCoverage
+  // are the single source of truth for "is this row actually lockable"
+  // -- a stored validation_status of PASS alone is not sufficient for a
+  // legacy (pre-Task-3.6) row missing coverage provenance.
+  // -------------------------------------------------------
+  {
+    const integratedOutline = {
+      signal_contributions: { vehicle: { evidence_refs: ["vehicle:9"] } },
+      coverage_status: { vehicle_signal: "USED" },
+      source_direction_ids: [1],
+      locked_beat_id: "BEAT-04",
+      validation_status: "PASS"
+    };
+    assert.equal(isIntegratedOutlineCoverage(integratedOutline), true);
+
+    const legacyOutline = {
+      signal_contributions: null,
+      coverage_status: null,
+      source_direction_ids: [],
+      locked_beat_id: null,
+      validation_status: "PASS"
+    };
+    assert.equal(isIntegratedOutlineCoverage(legacyOutline), false);
+
+    // Every required field individually gates lockability, not just
+    // signal_contributions/coverage_status presence.
+    assert.equal(
+      isIntegratedOutlineCoverage({ ...integratedOutline, source_direction_ids: [] }),
+      false
+    );
+    assert.equal(
+      isIntegratedOutlineCoverage({ ...integratedOutline, locked_beat_id: "" }),
+      false
+    );
+    assert.equal(
+      isIntegratedOutlineCoverage({ ...integratedOutline, validation_status: "BLOCKED" }),
+      false
+    );
+
+    const integratedScript = {
+      signal_contributions: { vehicle: { evidence_refs: ["vehicle:9"] } },
+      coverage_status: { vehicle_signal: "USED" },
+      source_outline_id: 1,
+      locked_beat_id: "BEAT-04",
+      validation_status: "PASS"
+    };
+    assert.equal(isIntegratedScriptCoverage(integratedScript), true);
+
+    const legacyScript = {
+      signal_contributions: null,
+      coverage_status: null,
+      source_outline_id: null,
+      locked_beat_id: null,
+      validation_status: "PASS"
+    };
+    assert.equal(isIntegratedScriptCoverage(legacyScript), false);
+
+    assert.equal(
+      isIntegratedScriptCoverage({ ...integratedScript, source_outline_id: null }),
+      false
+    );
+    assert.equal(
+      isIntegratedScriptCoverage({ ...integratedScript, locked_beat_id: null }),
+      false
+    );
+    assert.equal(
+      isIntegratedScriptCoverage({ ...integratedScript, validation_status: "BLOCKED" }),
+      false
     );
   }
 
