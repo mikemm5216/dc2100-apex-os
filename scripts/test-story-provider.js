@@ -3,8 +3,12 @@ const assert = require("node:assert/strict");
 const {
   ProviderError,
   PROVIDER_ERROR_CODES,
+  RATE_LIMIT_MAX_RETRIES,
+  RATE_LIMIT_BASE_DELAY_MS,
+  RATE_LIMIT_MAX_DELAY_MS,
   readProviderConfig,
   redactSecrets,
+  parseRetryAfterMs,
   generateJson
 } = require("../lib/story/provider");
 
@@ -27,10 +31,17 @@ const MINIMAL_TEST_SCHEMA = {
 // reached.
 // ---------------------------------------------------------
 
-function fakeGeminiResponse({ ok = true, status = 200, text }) {
+function fakeGeminiResponse({ ok = true, status = 200, text, headers = {} }) {
+  const lowercasedHeaders = Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value])
+  );
+
   return {
     ok,
     status,
+    headers: {
+      get: name => lowercasedHeaders[String(name).toLowerCase()] ?? null
+    },
     async json() {
       if (text === undefined) {
         return {};
@@ -47,6 +58,22 @@ function fakeGeminiResponse({ ok = true, status = 200, text }) {
         }
       };
     }
+  };
+}
+
+// Every rate-limit test injects these so no test actually waits --
+// sleepImpl just records the requested delay instead of really
+// sleeping, and randomImpl is fixed at 0 so the small additive jitter
+// never perturbs an exact-value assertion.
+function noWaitRateLimitDeps() {
+  const sleeps = [];
+
+  return {
+    sleeps,
+    sleepImpl: async ms => {
+      sleeps.push(ms);
+    },
+    randomImpl: () => 0
   };
 }
 
@@ -115,9 +142,15 @@ async function run() {
   }
 
   // -------------------------------------------------------
-  // PROVIDER_RATE_LIMITED (429)
+  // PROVIDER_RATE_LIMITED (429) -- eventually still throws once its
+  // own independent transport retries are exhausted. sleepImpl is
+  // injected so this never actually waits through the real backoff
+  // schedule.
   // -------------------------------------------------------
   {
+    const { sleeps, sleepImpl, randomImpl } = noWaitRateLimitDeps();
+    let calls = 0;
+
     await assert.rejects(
       generateJson({
         task: "TEST",
@@ -126,7 +159,12 @@ async function run() {
         schemaName: "test",
         responseJsonSchema: MINIMAL_TEST_SCHEMA,
         config: { ...BASE_CONFIG, maxAttempts: 1 },
-        fetchImpl: async () => fakeGeminiResponse({ ok: false, status: 429 })
+        sleepImpl,
+        randomImpl,
+        fetchImpl: async () => {
+          calls += 1;
+          return fakeGeminiResponse({ ok: false, status: 429 });
+        }
       }),
       error => {
         assert.equal(
@@ -136,7 +174,300 @@ async function run() {
         return true;
       }
     );
+
+    assert.equal(calls, RATE_LIMIT_MAX_RETRIES + 1, "initial request + 3 retries");
+    assert.equal(sleeps.length, RATE_LIMIT_MAX_RETRIES);
   }
+
+  // =========================================================
+  // Transient Gemini rate-limit retry (PR #12 Live Acceptance fix):
+  // a bounded, independent transport-level retry for HTTP 429 only,
+  // never consuming a JSON-repair attempt, never rebuilding the
+  // prompt/input, never touching Engine/validator retry state.
+  // =========================================================
+
+  // Test 1 -- first request succeeds: fetch called once, sleep never
+  // called, result unchanged from today's behavior.
+  {
+    const { sleeps, sleepImpl, randomImpl } = noWaitRateLimitDeps();
+    let calls = 0;
+
+    const result = await generateJson({
+      task: "TEST",
+      systemPrompt: "sp",
+      input: { a: 1 },
+      schemaName: "test",
+      responseJsonSchema: MINIMAL_TEST_SCHEMA,
+      config: { ...BASE_CONFIG, maxAttempts: 1 },
+      sleepImpl,
+      randomImpl,
+      fetchImpl: async () => {
+        calls += 1;
+        return fakeGeminiResponse({ text: JSON.stringify({ ok: true }) });
+      }
+    });
+
+    assert.equal(calls, 1);
+    assert.equal(sleeps.length, 0);
+    assert.equal(result.attempt, 1);
+    assert.deepEqual(result.data, { ok: true });
+    assert.equal(result.rateLimitRetries, 0);
+  }
+
+  // Test 2 -- first request 429, second succeeds: fetch called twice
+  // with the identical URL/body, sleep called exactly once, result
+  // still succeeds.
+  {
+    const { sleeps, sleepImpl, randomImpl } = noWaitRateLimitDeps();
+    const seenUrls = [];
+    const seenBodies = [];
+
+    const result = await generateJson({
+      task: "TEST",
+      systemPrompt: "sp",
+      input: { a: 1 },
+      schemaName: "test",
+      responseJsonSchema: MINIMAL_TEST_SCHEMA,
+      config: { ...BASE_CONFIG, maxAttempts: 1 },
+      sleepImpl,
+      randomImpl,
+      fetchImpl: async (url, options) => {
+        seenUrls.push(url);
+        seenBodies.push(options.body);
+
+        if (seenUrls.length === 1) {
+          return fakeGeminiResponse({ ok: false, status: 429 });
+        }
+
+        return fakeGeminiResponse({ text: JSON.stringify({ ok: true }) });
+      }
+    });
+
+    assert.equal(seenUrls.length, 2);
+    assert.equal(seenUrls[0], seenUrls[1], "the exact same request must be resent");
+    assert.equal(seenBodies[0], seenBodies[1], "the exact same request body must be resent, never a rebuilt repair prompt");
+    assert.equal(sleeps.length, 1);
+    assert.deepEqual(result.data, { ok: true });
+    assert.equal(result.attempt, 1, "a rate-limit retry must never consume a JSON-repair attempt");
+    assert.equal(result.rateLimitRetries, 1);
+  }
+
+  // Test 3 -- Retry-After in seconds form is honored: the actual
+  // delay used must be at least that many milliseconds.
+  {
+    const { sleeps, sleepImpl, randomImpl } = noWaitRateLimitDeps();
+    let calls = 0;
+
+    await generateJson({
+      task: "TEST",
+      systemPrompt: "sp",
+      input: {},
+      schemaName: "test",
+      responseJsonSchema: MINIMAL_TEST_SCHEMA,
+      config: { ...BASE_CONFIG, maxAttempts: 1 },
+      sleepImpl,
+      randomImpl,
+      fetchImpl: async () => {
+        calls += 1;
+
+        if (calls === 1) {
+          return fakeGeminiResponse({
+            ok: false,
+            status: 429,
+            headers: { "retry-after": "30" }
+          });
+        }
+
+        return fakeGeminiResponse({ text: JSON.stringify({ ok: true }) });
+      }
+    });
+
+    assert.ok(sleeps[0] >= 30000, `expected delay >= 30000ms, got ${sleeps[0]}`);
+  }
+
+  // Test 4 -- Retry-After as an HTTP-date is honored: with a fixed
+  // injected nowImpl, the computed delay must match the date's
+  // distance from "now".
+  {
+    const { sleeps, sleepImpl, randomImpl } = noWaitRateLimitDeps();
+    const fixedNowMs = Date.UTC(2026, 0, 1, 0, 0, 0);
+    const retryAfterDate = new Date(fixedNowMs + 45000);
+    let calls = 0;
+
+    await generateJson({
+      task: "TEST",
+      systemPrompt: "sp",
+      input: {},
+      schemaName: "test",
+      responseJsonSchema: MINIMAL_TEST_SCHEMA,
+      config: { ...BASE_CONFIG, maxAttempts: 1 },
+      sleepImpl,
+      randomImpl,
+      nowImpl: () => fixedNowMs,
+      fetchImpl: async () => {
+        calls += 1;
+
+        if (calls === 1) {
+          return fakeGeminiResponse({
+            ok: false,
+            status: 429,
+            headers: { "retry-after": retryAfterDate.toUTCString() }
+          });
+        }
+
+        return fakeGeminiResponse({ text: JSON.stringify({ ok: true }) });
+      }
+    });
+
+    assert.equal(
+      sleeps[0],
+      45000,
+      `expected the exact 45000ms gap between the fixed now and the Retry-After date, got ${sleeps[0]}`
+    );
+    assert.equal(
+      parseRetryAfterMs(retryAfterDate.toUTCString(), fixedNowMs),
+      45000
+    );
+  }
+
+  // Test 5 -- no Retry-After header falls back to the exponential
+  // backoff schedule: 15000, 30000, 60000.
+  {
+    const { sleeps, sleepImpl, randomImpl } = noWaitRateLimitDeps();
+    let calls = 0;
+
+    await assert.rejects(
+      generateJson({
+        task: "TEST",
+        systemPrompt: "sp",
+        input: {},
+        schemaName: "test",
+        responseJsonSchema: MINIMAL_TEST_SCHEMA,
+        config: { ...BASE_CONFIG, maxAttempts: 1 },
+        sleepImpl,
+        randomImpl,
+        fetchImpl: async () => {
+          calls += 1;
+          return fakeGeminiResponse({ ok: false, status: 429 });
+        }
+      }),
+      error => {
+        assert.equal(error.code, PROVIDER_ERROR_CODES.PROVIDER_RATE_LIMITED);
+        return true;
+      }
+    );
+
+    assert.deepEqual(sleeps, [
+      RATE_LIMIT_BASE_DELAY_MS,
+      RATE_LIMIT_BASE_DELAY_MS * 2,
+      RATE_LIMIT_MAX_DELAY_MS
+    ]);
+    assert.deepEqual(sleeps, [15000, 30000, 60000]);
+  }
+
+  // Test 6 -- repeated 429 exhausts retries: total fetch calls = 4
+  // (initial + 3 retries), final error is still PROVIDER_RATE_LIMITED
+  // (never rewritten to a generic upstream error), never a 5th call.
+  {
+    const { sleeps, sleepImpl, randomImpl } = noWaitRateLimitDeps();
+    let calls = 0;
+
+    await assert.rejects(
+      generateJson({
+        task: "TEST",
+        systemPrompt: "sp",
+        input: {},
+        schemaName: "test",
+        responseJsonSchema: MINIMAL_TEST_SCHEMA,
+        config: { ...BASE_CONFIG, maxAttempts: 1 },
+        sleepImpl,
+        randomImpl,
+        fetchImpl: async () => {
+          calls += 1;
+          return fakeGeminiResponse({ ok: false, status: 429 });
+        }
+      }),
+      error => {
+        assert.equal(error.code, PROVIDER_ERROR_CODES.PROVIDER_RATE_LIMITED);
+        return true;
+      }
+    );
+
+    assert.equal(calls, 4);
+    assert.equal(sleeps.length, 3, "no sleep after the final, exhausted attempt");
+  }
+
+  // Test 7 -- HTTP 400 is never retried by the rate-limit layer:
+  // fetch called once, sleep never called.
+  {
+    const { sleeps, sleepImpl, randomImpl } = noWaitRateLimitDeps();
+    let calls = 0;
+
+    await assert.rejects(
+      generateJson({
+        task: "TEST",
+        systemPrompt: "sp",
+        input: {},
+        schemaName: "test",
+        responseJsonSchema: MINIMAL_TEST_SCHEMA,
+        config: { ...BASE_CONFIG, maxAttempts: 1 },
+        sleepImpl,
+        randomImpl,
+        fetchImpl: async () => {
+          calls += 1;
+          return fakeGeminiResponse({ ok: false, status: 400 });
+        }
+      }),
+      error => {
+        assert.equal(error.code, PROVIDER_ERROR_CODES.PROVIDER_UPSTREAM_ERROR);
+        return true;
+      }
+    );
+
+    assert.equal(calls, 1);
+    assert.equal(sleeps.length, 0);
+  }
+
+  // Test 8 -- a rate-limit retry inside attempt 1, followed by a real
+  // JSON-repair retry (attempt 2), proves the two mechanisms are
+  // fully isolated: the repair attempt counter only advances for the
+  // actual content failure, never for the transport-level 429.
+  {
+    const { sleeps, sleepImpl, randomImpl } = noWaitRateLimitDeps();
+    let calls = 0;
+
+    const result = await generateJson({
+      task: "TEST",
+      systemPrompt: "sp",
+      input: { a: 1 },
+      schemaName: "test",
+      responseJsonSchema: MINIMAL_TEST_SCHEMA,
+      config: { ...BASE_CONFIG, maxAttempts: 2 },
+      sleepImpl,
+      randomImpl,
+      fetchImpl: async () => {
+        calls += 1;
+
+        if (calls === 1) {
+          return fakeGeminiResponse({ ok: false, status: 429 });
+        }
+
+        if (calls === 2) {
+          return fakeGeminiResponse({ text: "not valid json {" });
+        }
+
+        return fakeGeminiResponse({ text: JSON.stringify({ ok: true }) });
+      }
+    });
+
+    assert.equal(calls, 3, "429 retry + invalid-JSON attempt + repair attempt");
+    assert.equal(sleeps.length, 1, "only the transport-level 429 sleeps, never the JSON-repair retry");
+    assert.equal(result.attempt, 2, "the repair attempt counter only reflects the real content failure, not the 429");
+    assert.equal(result.rateLimitRetries, 1);
+    assert.deepEqual(result.data, { ok: true });
+  }
+
+  console.log("PROVIDER LIMIT FIX STORY PROVIDER TESTS PASSED: transient 429 transport retry isolated from JSON-repair retry, Retry-After honored, bounded exponential fallback, HTTP 400 unaffected");
 
   // -------------------------------------------------------
   // PROVIDER_UPSTREAM_ERROR (5xx)
