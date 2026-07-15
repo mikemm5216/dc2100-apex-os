@@ -94,10 +94,18 @@ function jsonEqual(a, b) {
 // =========================================================
 
 async function insertFixtureChain(pool) {
-  const country = await pool.query(
-    `INSERT INTO countries (code, name) VALUES ($1, $2) RETURNING id`,
-    ["JP", "Japan"]
-  );
+  // JP is already seeded by the migrations (db/migrations/002_seed_data.sql)
+  // -- re-inserting it here collides with the countries_code_key unique
+  // constraint. Reuse the existing seeded row instead of creating a new one.
+  const country = await pool.query(`SELECT id FROM countries WHERE code = $1`, ["JP"]);
+
+  if (country.rowCount !== 1 || !country.rows[0] || country.rows[0].id === undefined) {
+    throw new Error(
+      "LIVE_ACCEPTANCE_COUNTRY_SEED_MISSING: expected exactly one seeded country row with code=JP " +
+        `(found rowCount=${country.rowCount}). Migrations may not have been applied to this database.`
+    );
+  }
+
   const countryId = country.rows[0].id;
 
   const vehicle = await pool.query(
