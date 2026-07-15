@@ -2206,6 +2206,162 @@ function run() {
     );
   }
 
+  // =========================================================
+  // Review fix (negation scope): a sentence-level "any negation cue
+  // anywhere in the sentence" check let one negated clause launder an
+  // unrelated affirmative violation in the same sentence, and checking
+  // only the FIRST regex/phrase match per segment let a later,
+  // affirmative occurrence slip through uninspected. Clauses are now
+  // split on stronger boundaries (.!?;:\n and comma+but/however/yet/
+  // and), and every occurrence within a clause is checked
+  // independently, so a negated occurrence never excuses an
+  // affirmative one -- regardless of which comes first.
+  // =========================================================
+
+  function assertPass(buildOutline, buildScript, label) {
+    const outlineResult = validateOutline(buildOutline(), BASE_OUTLINE_CONTEXT);
+    assert.equal(
+      outlineResult.validation_status,
+      "PASS",
+      `${label} (Outline): expected PASS, got ${JSON.stringify(outlineResult.issues)}`
+    );
+
+    const scriptResult = validateScript(buildScript(), BASE_SCRIPT_CONTEXT);
+    assert.equal(
+      scriptResult.validation_status,
+      "PASS",
+      `${label} (Script): expected PASS, got ${JSON.stringify(scriptResult.issues)}`
+    );
+  }
+
+  function assertBlocked(buildOutline, buildScript, code, label) {
+    const outlineResult = validateOutline(buildOutline(), BASE_OUTLINE_CONTEXT);
+    assert.equal(outlineResult.validation_status, "BLOCKED", `${label} (Outline): expected BLOCKED`);
+    assert.ok(
+      outlineResult.issues.some(i => i.code === code),
+      `${label} (Outline): expected issue ${code}, got ${JSON.stringify(outlineResult.issues.map(i => i.code))}`
+    );
+
+    const scriptResult = validateScript(buildScript(), BASE_SCRIPT_CONTEXT);
+    assert.equal(scriptResult.validation_status, "BLOCKED", `${label} (Script): expected BLOCKED`);
+    assert.ok(
+      scriptResult.issues.some(i => i.code === code),
+      `${label} (Script): expected issue ${code}, got ${JSON.stringify(scriptResult.issues.map(i => i.code))}`
+    );
+  }
+
+  // A. Unrelated negation before an affirmative partnership claim,
+  // joined by ", and" -- must still BLOCK on the second clause.
+  {
+    const text = "The car is not damaged, and the team has an official partnership with Toyota.";
+    assertBlocked(
+      () => makeOutline({ outcome: text }),
+      () => makeScript("VEHICLE_FIRST", { hook: text }),
+      "OFFICIAL_PARTNERSHIP_IMPLIED",
+      "Case A (unrelated negation before affirmative partnership)"
+    );
+  }
+
+  // B. First partnership occurrence negated, second affirmative --
+  // the first clause's "no" must never excuse the second clause.
+  {
+    const text =
+      "No official partnership existed before, but now the team has an official partnership with Toyota.";
+    assertBlocked(
+      () => makeOutline({ outcome: text }),
+      () => makeScript("VEHICLE_FIRST", { hook: text }),
+      "OFFICIAL_PARTNERSHIP_IMPLIED",
+      "Case B (first partnership occurrence negated, second affirmative)"
+    );
+  }
+
+  // C. Two independently-negated partnership occurrences -- both
+  // clauses negate their own occurrence, so this must PASS.
+  {
+    const text =
+      "There is no official partnership implied, and there is no official partnership formed.";
+    assertPass(
+      () => makeOutline({ outcome: text }),
+      () => makeScript("VEHICLE_FIRST", { hook: text }),
+      "Case C (two negated partnership occurrences)"
+    );
+  }
+
+  // D. A negated traffic clause followed by an affirmative traffic
+  // clause, joined by ", but" -- must BLOCK on the second clause.
+  {
+    const text = "Traffic does not affect lap time, but popularity determines the winner.";
+    assertBlocked(
+      () => makeOutline({ outcome: text }),
+      () => makeScript("VEHICLE_FIRST", { hook: text }),
+      "TRAFFIC_DECIDES_RESULT",
+      "Case D (negated traffic clause + affirmative traffic clause)"
+    );
+  }
+
+  // E. First traffic occurrence negated, second affirmative, joined
+  // by a semicolon -- the first clause must never excuse the second.
+  {
+    const text = "Popularity never mattered before; now audience votes decide the outcome.";
+    assertBlocked(
+      () => makeOutline({ outcome: text }),
+      () => makeScript("VEHICLE_FIRST", { hook: text }),
+      "TRAFFIC_DECIDES_RESULT",
+      "Case E (first traffic occurrence negated, second affirmative)"
+    );
+  }
+
+  // F. Every traffic occurrence negated across two clauses -- must
+  // PASS.
+  {
+    const text =
+      "Traffic does not decide the race result, and popularity never determines the winner.";
+    assertPass(
+      () => makeOutline({ outcome: text }),
+      () => makeScript("VEHICLE_FIRST", { hook: text }),
+      "Case F (all traffic occurrences negated)"
+    );
+  }
+
+  // G. Affirmative occurrence BEFORE a negated occurrence -- proves
+  // the occurrence loop does not only inspect the first/last match;
+  // order must never matter. Covers both partnership and traffic.
+  {
+    const partnershipText =
+      "The team has an official partnership with Toyota, but there is no official partnership with Ferrari.";
+    assertBlocked(
+      () => makeOutline({ outcome: partnershipText }),
+      () => makeScript("VEHICLE_FIRST", { hook: partnershipText }),
+      "OFFICIAL_PARTNERSHIP_IMPLIED",
+      "Case G (affirmative partnership before negated partnership)"
+    );
+
+    const trafficText = "Traffic decides the race result, but popularity never determines the winner.";
+    assertBlocked(
+      () => makeOutline({ outcome: trafficText }),
+      () => makeScript("VEHICLE_FIRST", { hook: trafficText }),
+      "TRAFFIC_DECIDES_RESULT",
+      "Case G (affirmative traffic before negated traffic)"
+    );
+  }
+
+  // H. Compliance-reporting fields containing the raw trigger phrases
+  // (affirmatively phrased, as part of restating the rule) must still
+  // PASS -- these fields are excluded from narrative scanning
+  // entirely, independent of negation.
+  {
+    const complianceNote =
+      "The rule against an official partnership must never be broken, and a claim that traffic decides the race result is forbidden.";
+
+    assertPass(
+      () => makeOutline({ forbidden_elements_respected: [complianceNote] }),
+      () => makeScript("VEHICLE_FIRST", { ip_safety_notes: [complianceNote] }),
+      "Case H (compliance fields containing trigger phrases)"
+    );
+  }
+
+  console.log("REVIEW FIX STORY CORE TESTS PASSED: validator negation scoped to individual claims, all occurrences checked");
+
   console.log("REVIEW FIX STORY CORE TESTS PASSED: negated canon/IP phrase detection, compliance-field exclusion");
 
   console.log("TASK 3.6 STORY CORE TESTS PASSED: coverage inheritance + continuity validators");
