@@ -9,8 +9,8 @@ on:
     branches:
       - main
       # One-shot: fires automatic CI for Task 3.6 while no PR exists
-      # yet for this branch. Remove once a PR is open (pull_request
-      # already covers this branch's pushes from then on).
+      # yet for this branch. Removed in a follow-up commit once this
+      # branch's changes are confirmed green.
       - feat/story-outline-script-integrated-signals-v1
 
 permissions:
