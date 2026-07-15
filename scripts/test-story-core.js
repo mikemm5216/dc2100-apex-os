@@ -2362,6 +2362,133 @@ function run() {
 
   console.log("REVIEW FIX STORY CORE TESTS PASSED: validator negation scoped to individual claims, all occurrences checked");
 
+  // =========================================================
+  // Review fix (claim negation binding): the clause-level negation
+  // check above still decided negation from "does any negation cue
+  // appear anywhere in the localPrefix/matched span", which is wider
+  // than the claim it actually modifies -- an unrelated earlier
+  // negation ("not damaged") could still launder a real, later
+  // affirmative claim in the same clause (plain comma, or bare "and"
+  // with no comma, never split into separate clauses). Negation must
+  // now be decided from a small bounded window immediately adjacent
+  // to the specific occurrence (partnership phrases), or from the
+  // subject-to-verb gap of an independently identified claim (traffic
+  // subject/verb/object), so it can never bind to an unrelated claim.
+  // =========================================================
+
+  // 1-2. Unrelated "not damaged" negation before a real affirmative
+  // partnership claim, joined by a plain comma or a bare "and" (no
+  // comma) -- neither splits into a separate clause, so this proves
+  // negation is bounded to the occurrence, not "any cue in the
+  // clause".
+  {
+    assertBlocked(
+      () => makeOutline({ outcome: "The car is not damaged, the team has an official partnership with Toyota." }),
+      () => makeScript("VEHICLE_FIRST", { hook: "The car is not damaged, the team has an official partnership with Toyota." }),
+      "OFFICIAL_PARTNERSHIP_IMPLIED",
+      "Case 1 (unrelated negation, plain comma, no clause split)"
+    );
+
+    assertBlocked(
+      () => makeOutline({ outcome: "The car is not damaged and the team has an official partnership with Toyota." }),
+      () => makeScript("VEHICLE_FIRST", { hook: "The car is not damaged and the team has an official partnership with Toyota." }),
+      "OFFICIAL_PARTNERSHIP_IMPLIED",
+      "Case 2 (unrelated negation, bare and, no clause split)"
+    );
+  }
+
+  // 3. Unrelated "no mechanical failure" negation before a real
+  // affirmative sponsorship claim, joined by "while" (not a clause
+  // boundary).
+  {
+    const text = "The team has no mechanical failure while it is officially sponsored by the manufacturer.";
+    assertBlocked(
+      () => makeOutline({ outcome: text }),
+      () => makeScript("VEHICLE_FIRST", { hook: text }),
+      "OFFICIAL_PARTNERSHIP_IMPLIED",
+      "Case 3 (unrelated negation before sponsorship claim, while)"
+    );
+  }
+
+  // 4. First partnership occurrence negated, second affirmative --
+  // the first clause's "no" must never excuse the second.
+  {
+    const text =
+      "No official partnership existed before, but now the team has an official partnership with Toyota.";
+    assertBlocked(
+      () => makeOutline({ outcome: text }),
+      () => makeScript("VEHICLE_FIRST", { hook: text }),
+      "OFFICIAL_PARTNERSHIP_IMPLIED",
+      "Case 4 (first partnership occurrence negated, second affirmative)"
+    );
+  }
+
+  // 5-9. Directly-bound negation forms must all PASS.
+  {
+    const safePartnershipSentences = [
+      "No official partnership is implied.",
+      "The team operates without an official partnership.",
+      "The team is not officially sponsored by the manufacturer.",
+      "The project is not in partnership with Toyota.",
+      "An official partnership is not implied."
+    ];
+
+    for (const [index, sentence] of safePartnershipSentences.entries()) {
+      const caseNumber = 5 + index;
+      assertPass(
+        () => makeOutline({ outcome: sentence }),
+        () => makeScript("VEHICLE_FIRST", { hook: sentence }),
+        `Case ${caseNumber} (directly-bound partnership negation)`
+      );
+    }
+  }
+
+  // 10-14. Traffic claims that must BLOCK -- an unrelated subject's
+  // negation (or a negation bound to a different subject entirely)
+  // must never launder a real affirmative claim for another subject
+  // in the same clause/sentence.
+  {
+    const blockedTrafficSentences = [
+      "Traffic is not a concern and popularity determines the winner.",
+      "Traffic is not a concern, popularity determines the winner.",
+      "Traffic does not affect lap time while audience votes decide the outcome.",
+      "Popularity is not measured, but traffic decides the final result.",
+      "Traffic does not decide qualifying order, but traffic decides the winner."
+    ];
+
+    for (const [index, sentence] of blockedTrafficSentences.entries()) {
+      const caseNumber = 10 + index;
+      assertBlocked(
+        () => makeOutline({ outcome: sentence }),
+        () => makeScript("VEHICLE_FIRST", { hook: sentence }),
+        "TRAFFIC_DECIDES_RESULT",
+        `Case ${caseNumber} (unrelated/cross-subject traffic negation must not launder)`
+      );
+    }
+  }
+
+  // 15-18. Traffic claims where negation is directly bound to its own
+  // subject's decision verb must all PASS.
+  {
+    const safeTrafficSentences = [
+      "Traffic does not decide the race result.",
+      "Popularity never determines the winner.",
+      "Audience votes cannot crown the champion.",
+      "Traffic does not decide the result and popularity never determines the winner."
+    ];
+
+    for (const [index, sentence] of safeTrafficSentences.entries()) {
+      const caseNumber = 15 + index;
+      assertPass(
+        () => makeOutline({ outcome: sentence }),
+        () => makeScript("VEHICLE_FIRST", { hook: sentence }),
+        `Case ${caseNumber} (directly-bound traffic negation)`
+      );
+    }
+  }
+
+  console.log("REVIEW FIX STORY CORE TESTS PASSED: validator negation bound to the individual claim it directly modifies, cross-claim/cross-subject negation rejected");
+
   console.log("REVIEW FIX STORY CORE TESTS PASSED: negated canon/IP phrase detection, compliance-field exclusion");
 
   console.log("TASK 3.6 STORY CORE TESTS PASSED: coverage inheritance + continuity validators");
