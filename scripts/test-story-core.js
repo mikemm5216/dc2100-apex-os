@@ -1943,6 +1943,271 @@ function run() {
     );
   }
 
+  // =========================================================
+  // Review fix: Canon/IP phrase detection must not self-poison on
+  // compliance/audit REPORTING fields (canon_constraints,
+  // forbidden_elements_respected, ip_safety_notes, risk_flags,
+  // validation_issues, retry_feedback) -- a negated compliance
+  // sentence there ("No official partnership is implied.") must
+  // never trigger the exact violation it reports the absence of.
+  // Real narrative text is still scanned, but per-sentence-segment
+  // with negation-before-phrase awareness for OFFICIAL_PARTNERSHIP_
+  // IMPLIED and TRAFFIC_DECIDES_RESULT specifically -- a real
+  // affirmative violation must still be caught wherever it appears.
+  // =========================================================
+
+  const BASE_OUTLINE_CONTEXT = {
+    evidenceIds: new Set(["vehicle:1"]),
+    noPersonSignal: false
+  };
+
+  const BASE_SCRIPT_CONTEXT = {
+    evidenceIds: new Set(["vehicle:1"]),
+    noPersonSignal: false,
+    language: "en"
+  };
+
+  // ---- OFFICIAL PARTNERSHIP: must PASS ----
+
+  // 1. Compliance field reports the absence of a partnership --
+  // must never itself be read as implying one.
+  {
+    const outline = makeOutline({
+      forbidden_elements_respected: ["No official partnership is implied."]
+    });
+    const result = validateOutline(outline, BASE_OUTLINE_CONTEXT);
+    assert.equal(
+      result.validation_status,
+      "PASS",
+      `Case 1 (Outline forbidden_elements_respected compliance echo): expected PASS, got ${JSON.stringify(result.issues)}`
+    );
+  }
+
+  // 2. Same shape on a Script's ip_safety_notes compliance field.
+  {
+    const script = makeScript("VEHICLE_FIRST", {
+      ip_safety_notes: ["The fictional team is not officially sponsored by any manufacturer."]
+    });
+    const result = validateScript(script, BASE_SCRIPT_CONTEXT);
+    assert.equal(
+      result.validation_status,
+      "PASS",
+      `Case 2 (Script ip_safety_notes compliance echo): expected PASS, got ${JSON.stringify(result.issues)}`
+    );
+  }
+
+  // 3. Negated claim in REAL narrative text (not a compliance field)
+  // must also pass -- narrative fields are still scanned, just with
+  // negation awareness.
+  {
+    const outline = makeOutline({
+      outcome: "The team operates without an official partnership."
+    });
+    const outlineResult = validateOutline(outline, BASE_OUTLINE_CONTEXT);
+    assert.equal(
+      outlineResult.validation_status,
+      "PASS",
+      `Case 3 (Outline narrative negation): expected PASS, got ${JSON.stringify(outlineResult.issues)}`
+    );
+
+    const script = makeScript("VEHICLE_FIRST", {
+      hook: "The team operates without an official partnership."
+    });
+    const scriptResult = validateScript(script, BASE_SCRIPT_CONTEXT);
+    assert.equal(
+      scriptResult.validation_status,
+      "PASS",
+      `Case 3 (Script narrative negation): expected PASS, got ${JSON.stringify(scriptResult.issues)}`
+    );
+  }
+
+  // ---- OFFICIAL PARTNERSHIP: must BLOCK ----
+
+  // 4. Real affirmative partnership claim.
+  {
+    const outline = makeOutline({
+      outcome: "The team has an official partnership with Toyota."
+    });
+    const outlineResult = validateOutline(outline, BASE_OUTLINE_CONTEXT);
+    assert.equal(outlineResult.validation_status, "BLOCKED", "Case 4 (Outline): expected BLOCKED");
+    assert.ok(outlineResult.issues.some(i => i.code === "OFFICIAL_PARTNERSHIP_IMPLIED"));
+
+    const script = makeScript("VEHICLE_FIRST", {
+      hook: "The team has an official partnership with Toyota."
+    });
+    const scriptResult = validateScript(script, BASE_SCRIPT_CONTEXT);
+    assert.equal(scriptResult.validation_status, "BLOCKED", "Case 4 (Script): expected BLOCKED");
+    assert.ok(scriptResult.issues.some(i => i.code === "OFFICIAL_PARTNERSHIP_IMPLIED"));
+  }
+
+  // 5. Real affirmative sponsorship claim.
+  {
+    const outline = makeOutline({
+      outcome: "The vehicle is officially sponsored by the manufacturer."
+    });
+    const outlineResult = validateOutline(outline, BASE_OUTLINE_CONTEXT);
+    assert.equal(outlineResult.validation_status, "BLOCKED", "Case 5 (Outline): expected BLOCKED");
+    assert.ok(outlineResult.issues.some(i => i.code === "OFFICIAL_PARTNERSHIP_IMPLIED"));
+
+    const script = makeScript("VEHICLE_FIRST", {
+      hook: "The vehicle is officially sponsored by the manufacturer."
+    });
+    const scriptResult = validateScript(script, BASE_SCRIPT_CONTEXT);
+    assert.equal(scriptResult.validation_status, "BLOCKED", "Case 5 (Script): expected BLOCKED");
+    assert.ok(scriptResult.issues.some(i => i.code === "OFFICIAL_PARTNERSHIP_IMPLIED"));
+  }
+
+  // 6. The structured boolean check must remain intact and unaffected
+  // by any of the narrative-text changes above -- this is a Direction
+  // field (vehicle_transformation.official_partnership_implied), not
+  // a text scan.
+  {
+    const direction = makeIntegratedDirection("TECHNICAL_SACRIFICE", {
+      vehicle_transformation: {
+        evidence_vehicle: "Real Car X",
+        canon_vehicle_name: "Fictional Vehicle Prime",
+        preserved_traits: ["speed"],
+        changed_traits: ["color"],
+        official_partnership_implied: true
+      }
+    });
+
+    const result = validateDirectionBatch(
+      [
+        direction,
+        makeIntegratedDirection("SURVEILLANCE_TRAP"),
+        makeIntegratedDirection("CULTURAL_LEGACY")
+      ],
+      REGRESSION_CONTEXT
+    );
+
+    assert.equal(result.perDirection[0].validation_status, "BLOCKED", "Case 6: expected BLOCKED");
+    assert.ok(
+      result.perDirection[0].issues.some(
+        i =>
+          i.code === "OFFICIAL_PARTNERSHIP_IMPLIED" &&
+          i.path === "vehicle_transformation.official_partnership_implied"
+      )
+    );
+  }
+
+  // ---- TRAFFIC DECIDES RESULT: must PASS ----
+
+  // 7-9. Negated traffic/popularity/audience-vote claims in real
+  // narrative text.
+  {
+    const negatedTrafficSentences = [
+      "Traffic does not decide the race result.",
+      "Popularity never determines the winner.",
+      "Audience votes cannot decide the outcome."
+    ];
+
+    for (const [index, sentence] of negatedTrafficSentences.entries()) {
+      const caseNumber = 7 + index;
+
+      const outline = makeOutline({ outcome: sentence });
+      const outlineResult = validateOutline(outline, BASE_OUTLINE_CONTEXT);
+      assert.equal(
+        outlineResult.validation_status,
+        "PASS",
+        `Case ${caseNumber} (Outline): expected PASS for "${sentence}", got ${JSON.stringify(outlineResult.issues)}`
+      );
+
+      const script = makeScript("VEHICLE_FIRST", { hook: sentence });
+      const scriptResult = validateScript(script, BASE_SCRIPT_CONTEXT);
+      assert.equal(
+        scriptResult.validation_status,
+        "PASS",
+        `Case ${caseNumber} (Script): expected PASS for "${sentence}", got ${JSON.stringify(scriptResult.issues)}`
+      );
+    }
+  }
+
+  // 10. Compliance field restating the Canon rule itself (a
+  // canon_constraints entry, common to both Outline and Script) must
+  // never self-trigger.
+  {
+    const canonConstraints = ["Traffic/popularity must never decide the race result."];
+
+    const outline = makeOutline({ canon_constraints: canonConstraints });
+    const outlineResult = validateOutline(outline, BASE_OUTLINE_CONTEXT);
+    assert.equal(
+      outlineResult.validation_status,
+      "PASS",
+      `Case 10 (Outline canon_constraints echo): expected PASS, got ${JSON.stringify(outlineResult.issues)}`
+    );
+
+    const script = makeScript("VEHICLE_FIRST", { canon_constraints: canonConstraints });
+    const scriptResult = validateScript(script, BASE_SCRIPT_CONTEXT);
+    assert.equal(
+      scriptResult.validation_status,
+      "PASS",
+      `Case 10 (Script canon_constraints echo): expected PASS, got ${JSON.stringify(scriptResult.issues)}`
+    );
+  }
+
+  // ---- TRAFFIC DECIDES RESULT: must BLOCK ----
+
+  // 11-13. Real affirmative traffic/popularity/audience-vote claims.
+  {
+    const affirmativeTrafficSentences = [
+      "Traffic decides the race result.",
+      "Popularity determines the winner.",
+      "Audience votes crown the champion."
+    ];
+
+    for (const [index, sentence] of affirmativeTrafficSentences.entries()) {
+      const caseNumber = 11 + index;
+
+      const outline = makeOutline({ outcome: sentence });
+      const outlineResult = validateOutline(outline, BASE_OUTLINE_CONTEXT);
+      assert.equal(outlineResult.validation_status, "BLOCKED", `Case ${caseNumber} (Outline): expected BLOCKED for "${sentence}"`);
+      assert.ok(outlineResult.issues.some(i => i.code === "TRAFFIC_DECIDES_RESULT"));
+
+      const script = makeScript("VEHICLE_FIRST", { hook: sentence });
+      const scriptResult = validateScript(script, BASE_SCRIPT_CONTEXT);
+      assert.equal(scriptResult.validation_status, "BLOCKED", `Case ${caseNumber} (Script): expected BLOCKED for "${sentence}"`);
+      assert.ok(scriptResult.issues.some(i => i.code === "TRAFFIC_DECIDES_RESULT"));
+    }
+  }
+
+  // ---- Retry-feedback self-poisoning guard ----
+  //
+  // retry_feedback carries the PRIOR attempt's own validator issue
+  // messages (e.g. "Content implies an official brand partnership...")
+  // back into the next prompt's input. If Gemini's structured JSON
+  // response ever echoed a stray "retry_feedback" key back into its
+  // own output payload, that echoed validator message must not
+  // self-trigger the same issue code again.
+  {
+    const outline = makeOutline({
+      retry_feedback: {
+        previous_attempt_failed: true,
+        validation_issues: [
+          {
+            code: "OFFICIAL_PARTNERSHIP_IMPLIED",
+            message: 'Content implies an official brand partnership ("official partnership"), which is never permitted.',
+            path: "*"
+          },
+          {
+            code: "TRAFFIC_DECIDES_RESULT",
+            message: "Traffic/popularity must never be described as deciding a race result or winner.",
+            path: "*"
+          }
+        ]
+      }
+    });
+
+    const result = validateOutline(outline, BASE_OUTLINE_CONTEXT);
+    assert.equal(
+      result.validation_status,
+      "PASS",
+      `Retry-feedback self-poisoning guard: expected PASS, got ${JSON.stringify(result.issues)}`
+    );
+  }
+
+  console.log("REVIEW FIX STORY CORE TESTS PASSED: negated canon/IP phrase detection, compliance-field exclusion");
+
   console.log("TASK 3.6 STORY CORE TESTS PASSED: coverage inheritance + continuity validators");
 }
 
