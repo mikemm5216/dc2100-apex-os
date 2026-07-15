@@ -14,6 +14,7 @@ const {
   withStageOwnership
 } = require("../lib/story/engine");
 const { CanonError } = require("../lib/story/canon");
+const { isIntegratedScriptCoverage } = require("../lib/story/schemas");
 
 // ---------------------------------------------------------
 // No real Postgres connection is used anywhere in this file.
@@ -2116,6 +2117,276 @@ async function run() {
       assert.deepEqual(script.coverage_status, regressionDirection.coverage_status);
     }
   }
+
+  // =========================================================
+  // Review fix: a Script batch is validated as a unit -- retry only
+  // succeeds when BOTH the batch (variant count/duplicates/missing)
+  // AND every individual script PASS (see the `allPass` check in
+  // executeScriptsGeneration). Once SCRIPT_VALIDATION_MAX_ATTEMPTS is
+  // exhausted on a final attempt that still fails either check, NO row
+  // from that attempt may be persisted as PASS -- not even one whose
+  // own shape/content happened to validate cleanly on its own -- since
+  // the batch is the unit of lockable validity.
+  // =========================================================
+
+  const FULL_EVIDENCE_REFS = [
+    "vehicle:9",
+    "country_news:413",
+    "person:13",
+    "historical_resonance:13"
+  ];
+
+  function makeBatchFixtureScriptVariant(variantType, { evidenceRefs = FULL_EVIDENCE_REFS } = {}) {
+    return {
+      variant_type: variantType,
+      title: "T",
+      hook: "h",
+      hook_type: "action",
+      vo_text: new Array(90).fill("word").join(" "),
+      ending_hook: "eh",
+      estimated_duration_seconds: 33,
+      shots: [1, 2, 3, 4, 5, 6].map(n => ({
+        shot_no: n,
+        duration_seconds: n === 1 ? 3 : 6,
+        visual: `v${n}`,
+        voiceover: `vo${n}`,
+        evidence_refs: evidenceRefs
+      })),
+      evidence_map: evidenceRefs,
+      canon_constraints: [],
+      ip_safety_notes: [],
+      risk_flags: [],
+      proposed_state_changes: []
+    };
+  }
+
+  function makeBatchFixtureLockedOutlineRow(id = 700) {
+    const regressionDirection = makeRegressionDirection();
+    return {
+      id,
+      story_run_id: 1,
+      version: 1,
+      payload: makeFullCoverageOutlinePayload(),
+      validation_status: "PASS",
+      validation_issues: [],
+      signal_contributions: regressionDirection.signal_contributions,
+      coverage_status: regressionDirection.coverage_status,
+      source_direction_ids: ["2000"],
+      locked_beat_id: "BEAT-04",
+      locked_by: "michael",
+      locked_at: new Date(),
+      superseded_at: null,
+      created_at: new Date()
+    };
+  }
+
+  // Case 1 -- duplicate variant_type across all 3 retry attempts
+  // (VEHICLE_FIRST, VEHICLE_FIRST, CHARACTER_FIRST -- WORLD_FIRST is
+  // never produced). Every individual script's own shape validates
+  // cleanly, but the batch never PASSes, so retries are exhausted.
+  {
+    const pool = createMockStoryPool(
+      [regressionRunRow({ status: "GENERATING_SCRIPTS" })],
+      { outlines: [makeBatchFixtureLockedOutlineRow(700)] }
+    );
+
+    let calls = 0;
+
+    const result = await executeScriptsGeneration(
+      pool,
+      pool._state.runs.get(1),
+      {
+        loadCanonBundle: () => FAKE_CANON_BUNDLE,
+        generateJson: async () => {
+          calls += 1;
+          return {
+            data: {
+              scripts: [
+                makeBatchFixtureScriptVariant("VEHICLE_FIRST"),
+                makeBatchFixtureScriptVariant("VEHICLE_FIRST"),
+                makeBatchFixtureScriptVariant("CHARACTER_FIRST")
+              ]
+            },
+            provider: "gemini",
+            model: "test-model",
+            inputTokens: 1,
+            outputTokens: 1,
+            totalTokens: 2,
+            latencyMs: 10
+          };
+        }
+      }
+    );
+
+    assert.equal(calls, 3, "must exhaust all retry attempts before giving up");
+    assert.equal(result.outcome, "STAGE_ADVANCED");
+    // The run must still land on AWAITING_SCRIPT_LOCK so the user can
+    // regenerate -- a batch failure is not a hard pipeline failure.
+    assert.equal(result.run.status, "AWAITING_SCRIPT_LOCK");
+
+    const scripts = [...pool._state.scripts.values()];
+    assert.equal(scripts.length, 3);
+
+    for (const script of scripts) {
+      assert.equal(
+        script.validation_status,
+        "BLOCKED",
+        "no row from an incomplete batch may be persisted as PASS, even a structurally clean one"
+      );
+      assert.ok(
+        script.validation_issues.some(item => item.code === "SCRIPT_BATCH_BLOCKED"),
+        "every persisted row must carry the explicit batch-blocked marker"
+      );
+      assert.ok(
+        !isIntegratedScriptCoverage(script),
+        "a BLOCKED row must never be treated as lockable"
+      );
+    }
+
+    // Batch-level issue codes (duplicate + missing variant) must still
+    // be observable on the persisted rows, not silently dropped.
+    const allIssueCodes = scripts.flatMap(s =>
+      s.validation_issues.map(item => item.code)
+    );
+    assert.ok(allIssueCodes.includes("SCRIPT_VARIANT_DUPLICATE"));
+    assert.ok(allIssueCodes.includes("SCRIPT_VARIANT_MISSING"));
+
+    // story_generation_attempts must retain per-attempt FAILED status
+    // and both batch and perScript issue codes -- observability is not
+    // allowed to regress just because persistence now blocks everything.
+    assert.equal(pool._state.attempts.length, 3);
+    for (const attempt of pool._state.attempts) {
+      const status = attempt.values[13];
+      const issueCodes = JSON.parse(attempt.values[18]);
+      assert.equal(status, "FAILED");
+      assert.ok(issueCodes.includes("SCRIPT_VARIANT_DUPLICATE"));
+      assert.ok(issueCodes.includes("SCRIPT_VARIANT_MISSING"));
+    }
+  }
+
+  // Case 2 -- all 3 variants present and distinct (batch shape PASS),
+  // but one script's own coverage continuity fails on every attempt.
+  // The batch is still an all-or-nothing unit: retries exhausted means
+  // all three persisted rows are BLOCKED, not just the offending one.
+  {
+    const pool = createMockStoryPool(
+      [regressionRunRow({ status: "GENERATING_SCRIPTS" })],
+      { outlines: [makeBatchFixtureLockedOutlineRow(701)] }
+    );
+
+    let calls = 0;
+
+    const result = await executeScriptsGeneration(
+      pool,
+      pool._state.runs.get(1),
+      {
+        loadCanonBundle: () => FAKE_CANON_BUNDLE,
+        generateJson: async () => {
+          calls += 1;
+          return {
+            data: {
+              scripts: [
+                makeBatchFixtureScriptVariant("VEHICLE_FIRST"),
+                makeBatchFixtureScriptVariant("WORLD_FIRST"),
+                // Drops historical_resonance:13 -- inherited
+                // coverage_status.historical_resonance is USED, so this
+                // one script fails SCRIPT_COVERAGE_DROPPED every time.
+                makeBatchFixtureScriptVariant("CHARACTER_FIRST", {
+                  evidenceRefs: ["vehicle:9", "country_news:413", "person:13"]
+                })
+              ]
+            },
+            provider: "gemini",
+            model: "test-model",
+            inputTokens: 1,
+            outputTokens: 1,
+            totalTokens: 2,
+            latencyMs: 10
+          };
+        }
+      }
+    );
+
+    assert.equal(calls, 3);
+    assert.equal(result.outcome, "STAGE_ADVANCED");
+    assert.equal(result.run.status, "AWAITING_SCRIPT_LOCK");
+
+    const scripts = [...pool._state.scripts.values()];
+    assert.equal(scripts.length, 3);
+
+    const byVariant = Object.fromEntries(
+      scripts.map(s => [s.variant_type, s])
+    );
+
+    // Even the two variants with genuinely complete evidence must be
+    // blocked -- the batch failed as a set.
+    assert.equal(byVariant.VEHICLE_FIRST.validation_status, "BLOCKED");
+    assert.equal(byVariant.WORLD_FIRST.validation_status, "BLOCKED");
+    assert.equal(byVariant.CHARACTER_FIRST.validation_status, "BLOCKED");
+
+    for (const script of scripts) {
+      assert.ok(
+        script.validation_issues.some(item => item.code === "SCRIPT_BATCH_BLOCKED")
+      );
+      assert.ok(!isIntegratedScriptCoverage(script));
+    }
+
+    // The offending script's own SCRIPT_COVERAGE_DROPPED issue is
+    // preserved on its row, alongside (not instead of) the batch marker.
+    assert.ok(
+      byVariant.CHARACTER_FIRST.validation_issues.some(
+        item => item.code === "SCRIPT_COVERAGE_DROPPED"
+      )
+    );
+  }
+
+  // Case 3 -- a complete, fully-passing batch persists all three rows
+  // as PASS and each is independently lockable.
+  {
+    const pool = createMockStoryPool(
+      [regressionRunRow({ status: "GENERATING_SCRIPTS" })],
+      { outlines: [makeBatchFixtureLockedOutlineRow(702)] }
+    );
+
+    const result = await executeScriptsGeneration(
+      pool,
+      pool._state.runs.get(1),
+      {
+        loadCanonBundle: () => FAKE_CANON_BUNDLE,
+        generateJson: async () => ({
+          data: {
+            scripts: [
+              makeBatchFixtureScriptVariant("VEHICLE_FIRST"),
+              makeBatchFixtureScriptVariant("WORLD_FIRST"),
+              makeBatchFixtureScriptVariant("CHARACTER_FIRST")
+            ]
+          },
+          provider: "gemini",
+          model: "test-model",
+          inputTokens: 1,
+          outputTokens: 1,
+          totalTokens: 2,
+          latencyMs: 10
+        })
+      }
+    );
+
+    assert.equal(result.outcome, "STAGE_ADVANCED");
+    assert.equal(result.run.status, "AWAITING_SCRIPT_LOCK");
+
+    const scripts = [...pool._state.scripts.values()];
+    assert.equal(scripts.length, 3);
+
+    for (const script of scripts) {
+      assert.equal(script.validation_status, "PASS");
+      assert.ok(
+        !script.validation_issues.some(item => item.code === "SCRIPT_BATCH_BLOCKED")
+      );
+      assert.ok(isIntegratedScriptCoverage(script));
+    }
+  }
+
+  console.log("REVIEW FIX STORY WORKER TESTS PASSED: script batch atomicity on final-attempt failure");
 
   console.log("TASK 3.6 STORY WORKER TESTS PASSED: coverage inheritance, retry loop, forward-propagation to Scripts");
 }

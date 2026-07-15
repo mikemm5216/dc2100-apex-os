@@ -1908,6 +1908,139 @@ async function run() {
     assert.equal(legacy.script_schema, "LEGACY_NO_COVERAGE");
   }
 
+  // =========================================================
+  // Review fix: a Script batch that failed as a whole (executeScripts
+  // Generation now persists every row from that attempt as BLOCKED,
+  // never just the offending variant -- see engine.js's finalBatchPass
+  // gate) must never expose a lockable row at the API layer either.
+  // =========================================================
+
+  // Case 1/2 (worker-level batch atomicity is exercised in
+  // scripts/test-story-worker.js) -- here we confirm the Gate/Lock
+  // surface: three rows persisted BLOCKED with SCRIPT_BATCH_BLOCKED
+  // means can_lock_script is false and lockScriptHandler rejects
+  // every one of them without advancing the run.
+  {
+    const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
+    const created = await createStoryRunHandler(pool, { fusion_candidate_id: 1 }, {});
+    const runId = created.payload.data.id;
+
+    pool._state.runs.get(Number(runId)).status = "AWAITING_SCRIPT_LOCK";
+
+    const batchBlockedIssues = variantIssues => [
+      ...variantIssues,
+      { validator: "STRUCTURE", code: "SCRIPT_VARIANT_DUPLICATE", message: "dup", path: "scripts" },
+      {
+        validator: "STRUCTURE",
+        code: "SCRIPT_BATCH_BLOCKED",
+        message:
+          "The Script batch did not pass as a complete set, so no variant from this batch may be locked.",
+        path: "scripts"
+      }
+    ];
+
+    pool._state.scripts.set(
+      1,
+      scriptRow(runId, 1, {
+        variant_type: "VEHICLE_FIRST",
+        validation_status: "BLOCKED",
+        validation_issues: batchBlockedIssues([]),
+        signal_contributions: { vehicle: { evidence_refs: ["vehicle:9"] } },
+        coverage_status: { vehicle_signal: "USED" },
+        source_outline_id: 1,
+        locked_beat_id: "BEAT-04"
+      })
+    );
+    pool._state.scripts.set(
+      2,
+      scriptRow(runId, 2, {
+        variant_type: "WORLD_FIRST",
+        validation_status: "BLOCKED",
+        validation_issues: batchBlockedIssues([]),
+        signal_contributions: { vehicle: { evidence_refs: ["vehicle:9"] } },
+        coverage_status: { vehicle_signal: "USED" },
+        source_outline_id: 1,
+        locked_beat_id: "BEAT-04"
+      })
+    );
+    pool._state.scripts.set(
+      3,
+      scriptRow(runId, 3, {
+        variant_type: "CHARACTER_FIRST",
+        validation_status: "BLOCKED",
+        validation_issues: batchBlockedIssues([
+          { validator: "STRUCTURE", code: "SCRIPT_COVERAGE_DROPPED", message: "dropped", path: "evidence_map" }
+        ]),
+        signal_contributions: { vehicle: { evidence_refs: ["vehicle:9"] } },
+        coverage_status: { vehicle_signal: "USED" },
+        source_outline_id: 1,
+        locked_beat_id: "BEAT-04"
+      })
+    );
+
+    const detail = await getStoryRun(pool, runId);
+    assert.equal(detail.payload.data.can_lock_script, false);
+    assert.equal(detail.payload.data.can_regenerate, true);
+
+    for (const scriptId of [1, 2, 3]) {
+      const result = await lockScriptHandler(pool, runId, {
+        approved_by: "michael",
+        script_id: scriptId
+      });
+
+      assert.equal(result.statusCode, 422);
+      assert.equal(result.payload.error, "VALIDATION_BLOCKED");
+      assert.equal(pool._state.scripts.get(scriptId).locked_by, null);
+    }
+
+    assert.equal(
+      pool._state.runs.get(Number(runId)).status,
+      "AWAITING_SCRIPT_LOCK",
+      "a batch-blocked run must never advance past AWAITING_SCRIPT_LOCK"
+    );
+  }
+
+  // Case 3: a complete, fully-passing batch is lockable -- any one of
+  // the three PASS variants can be locked normally.
+  {
+    const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
+    const created = await createStoryRunHandler(pool, { fusion_candidate_id: 1 }, {});
+    const runId = created.payload.data.id;
+
+    pool._state.runs.get(Number(runId)).status = "AWAITING_SCRIPT_LOCK";
+
+    for (const [id, variant] of [
+      [1, "VEHICLE_FIRST"],
+      [2, "WORLD_FIRST"],
+      [3, "CHARACTER_FIRST"]
+    ]) {
+      pool._state.scripts.set(
+        id,
+        scriptRow(runId, id, {
+          variant_type: variant,
+          validation_status: "PASS",
+          validation_issues: [],
+          signal_contributions: { vehicle: { evidence_refs: ["vehicle:9"] } },
+          coverage_status: { vehicle_signal: "USED" },
+          source_outline_id: 1,
+          locked_beat_id: "BEAT-04"
+        })
+      );
+    }
+
+    const detail = await getStoryRun(pool, runId);
+    assert.equal(detail.payload.data.can_lock_script, true);
+
+    const result = await lockScriptHandler(pool, runId, {
+      approved_by: "michael",
+      script_id: 2
+    });
+
+    assert.equal(result.statusCode, 200);
+    assert.equal(result.payload.data.status, "COMPLETED");
+    assert.equal(pool._state.scripts.get(2).locked_by, "michael");
+  }
+
   console.log("TASK 3.6 STORY API TESTS PASSED: outline/script coverage serialization");
 }
 
