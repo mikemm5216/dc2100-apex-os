@@ -507,16 +507,29 @@ async function run() {
 
     const sentSchema = capturedBody.generationConfig.responseJsonSchema;
     assert.deepEqual(sentSchema, STORY_DIRECTIONS_RESPONSE_JSON_SCHEMA);
-    assert.equal(sentSchema.properties.directions.minItems, 4);
+    assert.equal(sentSchema.properties.directions.minItems, 3);
     assert.equal(sentSchema.properties.directions.maxItems, 4);
 
     const directionItemSchema = sentSchema.properties.directions.items;
+
+    // Task 3.5E: direction_type is fixed to INTEGRATED_STORY --
+    // Vehicle/Country/Person/APEX are evidence layers every
+    // direction must fuse, never four separate direction_type
+    // values to choose between.
+    assert.deepEqual(directionItemSchema.properties.direction_type.enum, [
+      "INTEGRATED_STORY"
+    ]);
+
     for (const field of [
-      "beat_connection",
+      "narrative_emphasis",
+      "signal_contributions",
       "vehicle_transformation",
       "character_concept",
-      "canon_connections",
+      "causal_chain",
+      "driver_choice",
       "risk_flags",
+      "canon_connections",
+      "coverage_status",
       "proposed_state_changes"
     ]) {
       assert.ok(
@@ -527,6 +540,15 @@ async function run() {
 
     assert.equal(directionItemSchema.properties.canon_connections.type, "array");
     assert.equal(directionItemSchema.properties.risk_flags.type, "array");
+    assert.ok(directionItemSchema.properties.causal_chain.minItems >= 5);
+
+    const signalContributions = directionItemSchema.properties.signal_contributions;
+    for (const layer of ["vehicle", "country", "person", "apex"]) {
+      assert.ok(
+        signalContributions.required.includes(layer),
+        `signal_contributions must require the ${layer} layer`
+      );
+    }
 
     const stateChangeSchema =
       directionItemSchema.properties.proposed_state_changes.items;

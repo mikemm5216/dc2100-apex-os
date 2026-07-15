@@ -1,0 +1,74 @@
+name: Task 3.5E Story Direction Live Acceptance
+
+# Manual-only: this exercises real Gemini calls (spends real API quota)
+# and a disposable Postgres service container, never the production
+# database. Trigger from Actions -> this workflow -> Run workflow.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  live-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dc2100_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/dc2100_ci
+      STORY_LLM_PROVIDER: gemini
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      STORY_GEMINI_MODEL: ${{ secrets.STORY_GEMINI_MODEL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply migrations 001-015 against a real, disposable Postgres
+        run: node scripts/ci-run-migrations.js
+
+      - name: Migration 015 real-Postgres acceptance (constraints, uniqueness, rollback)
+        run: node scripts/ci-migration-accept.js
+
+      - name: Story core tests
+        run: npm run test:story-core
+
+      - name: Story provider tests
+        run: npm run test:story-provider
+
+      - name: Story API tests
+        run: npm run test:story-api
+
+      - name: Story worker tests
+        run: npm run test:story-worker
+
+      - name: Story migration tests (pg-mem)
+        run: npm run test:story-migration
+
+      - name: Live Gemini acceptance via executeDirectionsGeneration (real network calls)
+        run: node scripts/live-accept-story-directions.js

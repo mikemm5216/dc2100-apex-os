@@ -27,7 +27,8 @@
     "test:story-core": "node scripts/test-story-core.js",
     "test:story-provider": "node scripts/test-story-provider.js",
     "test:story-api": "node scripts/test-story-api.js",
-    "test:story-worker": "node scripts/test-story-worker.js"
+    "test:story-worker": "node scripts/test-story-worker.js",
+    "test:story-migration": "node scripts/test-story-migration.js"
   },
   "engines": {
     "node": ">=20"
@@ -35,5 +36,8 @@
   "dependencies": {
     "fast-xml-parser": "^5.10.0",
     "pg": "^8.22.0"
+  },
+  "devDependencies": {
+    "pg-mem": "^3.0.14"
   }
 }
