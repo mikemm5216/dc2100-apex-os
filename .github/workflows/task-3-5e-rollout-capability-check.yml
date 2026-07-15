@@ -1,0 +1,31 @@
+name: Task 3.5E Rollout Capability Check
+
+# Manual-only: reports whether production-related secrets exist as booleans.
+# Never prints secret values. Does not run migrations, call Gemini, merge, or deploy.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  capability-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Report secret availability (booleans only)
+        env:
+          GITHUB_TOKEN_AVAILABLE: ${{ secrets.GITHUB_TOKEN != '' }}
+          PRODUCTION_DATABASE_URL_AVAILABLE: ${{ secrets.PRODUCTION_DATABASE_URL != '' }}
+          RAILWAY_TOKEN_AVAILABLE: ${{ secrets.RAILWAY_TOKEN != '' }}
+          RAILWAY_DEPLOY_HOOK_AVAILABLE: ${{ secrets.RAILWAY_DEPLOY_HOOK != '' }}
+          NETLIFY_AUTH_TOKEN_AVAILABLE: ${{ secrets.NETLIFY_AUTH_TOKEN != '' }}
+          NETLIFY_DEPLOY_HOOK_AVAILABLE: ${{ secrets.NETLIFY_DEPLOY_HOOK != '' }}
+        run: |
+          echo "GITHUB_TOKEN_AVAILABLE=$GITHUB_TOKEN_AVAILABLE"
+          echo "PRODUCTION_DATABASE_URL_AVAILABLE=$PRODUCTION_DATABASE_URL_AVAILABLE"
+          echo "RAILWAY_TOKEN_AVAILABLE=$RAILWAY_TOKEN_AVAILABLE"
+          echo "RAILWAY_DEPLOY_HOOK_AVAILABLE=$RAILWAY_DEPLOY_HOOK_AVAILABLE"
+          echo "NETLIFY_AUTH_TOKEN_AVAILABLE=$NETLIFY_AUTH_TOKEN_AVAILABLE"
+          echo "NETLIFY_DEPLOY_HOOK_AVAILABLE=$NETLIFY_DEPLOY_HOOK_AVAILABLE"
