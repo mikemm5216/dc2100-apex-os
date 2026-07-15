@@ -44,7 +44,7 @@ const {
   computeCoverageStatusFromSnapshot
 } = require("../lib/story/engine");
 const { loadCanonBundle } = require("../lib/story/canon");
-const { generateJson } = require("../lib/story/provider");
+const { generateJson, redactSecrets } = require("../lib/story/provider");
 const { collectEvidenceRefs } = require("../lib/story/validators");
 
 const WORKER_ID = "live-acceptance-3-6";
@@ -408,6 +408,117 @@ function sumField(rows, field) {
   return rows.reduce((sum, row) => sum + Number(row[field] || 0), 0);
 }
 
+// =========================================================
+// FAILURE DIAGNOSTICS -- called before throwing whenever
+// executeOutlineGeneration/executeScriptsGeneration return
+// outcome === "RUN_FAILED", so a real provider/generation failure is
+// never reported as a bare "did not advance" with no way to diagnose
+// it afterward. Only ever reads columns that are already safe by
+// construction (recordGenerationAttempt/persistStageFailure never
+// store request_payload, prompts, or raw secrets -- see engine.js),
+// and redacts error_code/error_message/event payloads through
+// redactSecrets (with the real GEMINI_API_KEY as an extra explicit
+// secret to strip) before printing, as one more defensive layer.
+// Never queries or prints request_payload, prompt text, API keys,
+// DATABASE_URL, other environment variables, or headers.
+// =========================================================
+
+async function printStageFailureDiagnostics(pool, runId, stage) {
+  const secrets = [process.env.GEMINI_API_KEY].filter(Boolean);
+
+  function redactValue(value) {
+    return value === null || value === undefined ? value : redactSecrets(String(value), secrets);
+  }
+
+  function redactPayload(payload) {
+    if (payload === null || payload === undefined) {
+      return null;
+    }
+    try {
+      return JSON.parse(redactSecrets(JSON.stringify(payload), secrets));
+    } catch {
+      return "(unprintable payload, redaction failed closed)";
+    }
+  }
+
+  const runResult = await pool.query(
+    `
+      SELECT id, status, current_stage, failure_stage, error_code, error_message,
+        attempt_count, stage_attempt_count
+      FROM story_pipeline_runs
+      WHERE id = $1
+    `,
+    [runId]
+  );
+
+  const runRow = runResult.rows[0] || null;
+  const run = runRow && {
+    id: String(runRow.id),
+    status: runRow.status,
+    current_stage: runRow.current_stage,
+    failure_stage: runRow.failure_stage,
+    error_code: redactValue(runRow.error_code),
+    error_message: redactValue(runRow.error_message),
+    attempt_count: runRow.attempt_count,
+    stage_attempt_count: runRow.stage_attempt_count
+  };
+
+  const attemptResult = await pool.query(
+    `
+      SELECT stage, status, provider, model, attempt_number, validation_status,
+        issue_codes, input_tokens, output_tokens, total_tokens, latency_ms,
+        error_code, error_message
+      FROM story_generation_attempts
+      WHERE story_run_id = $1 AND stage = $2
+      ORDER BY attempt_number DESC, id DESC
+      LIMIT 1
+    `,
+    [runId, stage]
+  );
+
+  const attemptRow = attemptResult.rows[0] || null;
+  const latestAttempt = attemptRow && {
+    stage: attemptRow.stage,
+    status: attemptRow.status,
+    provider: attemptRow.provider,
+    model: attemptRow.model,
+    attempt_number: attemptRow.attempt_number,
+    validation_status: attemptRow.validation_status,
+    issue_codes: attemptRow.issue_codes,
+    input_tokens: attemptRow.input_tokens,
+    output_tokens: attemptRow.output_tokens,
+    total_tokens: attemptRow.total_tokens,
+    latency_ms: attemptRow.latency_ms,
+    error_code: redactValue(attemptRow.error_code),
+    error_message: redactValue(attemptRow.error_message)
+  };
+
+  const eventResult = await pool.query(
+    `
+      SELECT event_type, stage, payload, created_at
+      FROM story_pipeline_events
+      WHERE story_run_id = $1
+      ORDER BY created_at DESC, id DESC
+      LIMIT 5
+    `,
+    [runId]
+  );
+
+  const recentEvents = eventResult.rows.map(row => ({
+    event_type: row.event_type,
+    stage: row.stage,
+    payload: redactPayload(row.payload),
+    created_at: row.created_at
+  }));
+
+  console.error(`STAGE FAILURE DIAGNOSTICS (${stage})`);
+  console.error("story_pipeline_runs:", JSON.stringify(run));
+  console.error("story_generation_attempts (latest for stage):", JSON.stringify(latestAttempt));
+  console.error("story_pipeline_events (last 5):", JSON.stringify(recentEvents));
+
+  return { run, latestAttempt, recentEvents };
+}
+
 async function main() {
   assert.ok(process.env.GEMINI_API_KEY, "GEMINI_API_KEY must be set for a live acceptance run.");
   assert.ok(process.env.STORY_GEMINI_MODEL, "STORY_GEMINI_MODEL must be set for a live acceptance run.");
@@ -498,6 +609,17 @@ async function main() {
 
     check("Outline generation reached STAGE_ADVANCED", outlineResult.outcome === "STAGE_ADVANCED");
 
+    if (outlineResult.outcome === "RUN_FAILED") {
+      const diagnostics = await printStageFailureDiagnostics(pool, runId, "OUTLINE");
+      const failedRun = diagnostics.run;
+      throw new Error(
+        "Outline generation failed (outcome=RUN_FAILED) -- aborting before Outline Lock / Scripts. " +
+          `failure_stage=${failedRun ? failedRun.failure_stage : "unknown"}, ` +
+          `error_code=${failedRun ? failedRun.error_code : "unknown"}, ` +
+          `error_message=${failedRun ? JSON.stringify(failedRun.error_message) : "unknown"}`
+      );
+    }
+
     if (outlineResult.outcome !== "STAGE_ADVANCED") {
       throw new Error(
         `Outline generation did not advance (outcome=${outlineResult.outcome}) -- aborting before Outline Lock / Scripts.`
@@ -579,6 +701,17 @@ async function main() {
     console.log(JSON.stringify(scriptAttemptsSummary));
 
     check("Script generation reached STAGE_ADVANCED", scriptsResult.outcome === "STAGE_ADVANCED");
+
+    if (scriptsResult.outcome === "RUN_FAILED") {
+      const diagnostics = await printStageFailureDiagnostics(pool, runId, "SCRIPTS");
+      const failedRun = diagnostics.run;
+      throw new Error(
+        "Script generation failed (outcome=RUN_FAILED) -- aborting. " +
+          `failure_stage=${failedRun ? failedRun.failure_stage : "unknown"}, ` +
+          `error_code=${failedRun ? failedRun.error_code : "unknown"}, ` +
+          `error_message=${failedRun ? JSON.stringify(failedRun.error_message) : "unknown"}`
+      );
+    }
 
     if (scriptsResult.outcome !== "STAGE_ADVANCED") {
       throw new Error(`Script generation did not advance (outcome=${scriptsResult.outcome}) -- aborting.`);
@@ -724,5 +857,6 @@ module.exports = {
   insertDirectionRow,
   fetchAttempts,
   summarizeAttempts,
+  printStageFailureDiagnostics,
   main
 };
