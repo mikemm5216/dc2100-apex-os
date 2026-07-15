@@ -116,26 +116,52 @@ function CoverageBadge({
   );
 }
 
-function DirectionCard({ direction }: { direction: DirectionRecord }) {
+function DirectionCard({
+  direction,
+  selected,
+  onSelect,
+}: {
+  direction: DirectionRecord;
+  selected: boolean;
+  onSelect: (id: string) => void;
+}) {
   const payload = direction.payload || {};
   const coverage = payload.coverage_status || {};
   const isLegacy = direction.direction_schema === "LEGACY_DIRECTION";
+  const isSelectable =
+    direction.validation_status === "PASS" &&
+    direction.direction_schema === "INTEGRATED_STORY";
 
   return (
     <div
       className={`rounded-lg border p-4 ${
-        isLegacy ? "border-amber-700 bg-amber-950/20" : "border-neutral-800"
+        isLegacy
+          ? "border-amber-700 bg-amber-950/20"
+          : selected
+            ? "border-emerald-600"
+            : "border-neutral-800"
       }`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="text-xs uppercase tracking-wide text-neutral-500">
-            {payload.narrative_emphasis || direction.direction_type} · #
-            {direction.id}
-          </p>
-          <h3 className="text-lg font-semibold text-white">
-            {payload.title || "(untitled)"}
-          </h3>
+        <div className="flex items-center gap-3">
+          <input
+            type="radio"
+            name="selected-direction"
+            aria-label={`Select direction ${direction.id}`}
+            checked={selected}
+            disabled={!isSelectable}
+            onChange={() => onSelect(direction.id)}
+            className="h-4 w-4 disabled:opacity-30"
+          />
+          <div>
+            <p className="text-xs uppercase tracking-wide text-neutral-500">
+              {payload.narrative_emphasis || direction.direction_type} · #
+              {direction.id}
+            </p>
+            <h3 className="text-lg font-semibold text-white">
+              {payload.title || "(untitled)"}
+            </h3>
+          </div>
         </div>
 
         <span
@@ -228,6 +254,9 @@ export default function GenerationQueuePage() {
   const [detail, setDetail] = useState<StoryRunDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedDirectionId, setSelectedDirectionId] = useState<
+    string | null
+  >(null);
 
   async function fetchRunDetail() {
     const response = await fetch(`${STORY_API_URL}/api/story/runs/${runId}`, {
@@ -244,11 +273,44 @@ export default function GenerationQueuePage() {
     setLoading(true);
     setError(null);
     setDetail(null);
+    setSelectedDirectionId(null);
 
     try {
       await fetchRunDetail();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load run.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function selectDirection() {
+    if (!selectedDirectionId) return;
+
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `${STORY_API_URL}/api/story/runs/${runId}/select-direction`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            approved_by: "michael",
+            selected_direction_ids: [selectedDirectionId],
+            selection_mode: "SINGLE",
+          }),
+        }
+      );
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.message || `HTTP ${response.status}`);
+      setSelectedDirectionId(null);
+      await fetchRunDetail();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to select direction.");
     } finally {
       setLoading(false);
     }
@@ -350,7 +412,13 @@ export default function GenerationQueuePage() {
                   <div className="mt-3 flex gap-2">
                     <button
                       type="button"
-                      disabled={!detail.can_select_direction || selectableCount === 0}
+                      onClick={selectDirection}
+                      disabled={
+                        !detail.can_select_direction ||
+                        selectableCount === 0 ||
+                        !selectedDirectionId ||
+                        loading
+                      }
                       className="rounded bg-emerald-700 px-3 py-1.5 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       SELECT
@@ -397,7 +465,12 @@ export default function GenerationQueuePage() {
 
             <div className="grid gap-4">
               {detail.directions.map((direction) => (
-                <DirectionCard key={direction.id} direction={direction} />
+                <DirectionCard
+                  key={direction.id}
+                  direction={direction}
+                  selected={selectedDirectionId === direction.id}
+                  onSelect={setSelectedDirectionId}
+                />
               ))}
 
               {detail.directions.length === 0 && (
