@@ -8,6 +8,10 @@ on:
   push:
     branches:
       - main
+      # One-shot: fires automatic CI for Task 3.6 while no PR exists
+      # yet for this branch. Remove once a PR is open (pull_request
+      # already covers this branch's pushes from then on).
+      - feat/story-outline-script-integrated-signals-v1
 
 permissions:
   contents: read
@@ -51,6 +55,21 @@ jobs:
 
       - name: Fusion API tests
         run: npm run test:fusion-api
+
+      - name: Story migration tests (pg-mem)
+        run: npm run test:story-migration
+
+      - name: Story core tests
+        run: npm run test:story-core
+
+      - name: Story provider tests
+        run: npm run test:story-provider
+
+      - name: Story API tests
+        run: npm run test:story-api
+
+      - name: Story worker tests
+        run: npm run test:story-worker
 
       - name: Install Dashboard dependencies
         working-directory: apps/dashboard

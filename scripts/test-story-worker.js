@@ -405,7 +405,10 @@ function createMockStoryPool(initialRows, { directions = [], outlines = [] } = {
     }
 
     if (trimmed.startsWith("INSERT INTO story_outlines")) {
-      const [runId, version, payload, validationStatus, validationIssues] = values;
+      const [
+        runId, version, payload, validationStatus, validationIssues,
+        signalContributions, coverageStatus, sourceDirectionIds, lockedBeatId
+      ] = values;
       const id = state.nextOutlineId++;
       state.outlines.set(id, {
         id,
@@ -414,6 +417,10 @@ function createMockStoryPool(initialRows, { directions = [], outlines = [] } = {
         payload: JSON.parse(payload),
         validation_status: validationStatus,
         validation_issues: JSON.parse(validationIssues),
+        signal_contributions: signalContributions ? JSON.parse(signalContributions) : null,
+        coverage_status: coverageStatus ? JSON.parse(coverageStatus) : null,
+        source_direction_ids: sourceDirectionIds ? JSON.parse(sourceDirectionIds) : [],
+        locked_beat_id: lockedBeatId || null,
         locked_by: null,
         locked_at: null,
         superseded_at: null,
@@ -423,7 +430,11 @@ function createMockStoryPool(initialRows, { directions = [], outlines = [] } = {
     }
 
     if (trimmed.startsWith("INSERT INTO story_scripts")) {
-      const [runId, version, variantType, payload, wordCount, duration, validationStatus, validationIssues] = values;
+      const [
+        runId, version, variantType, payload, wordCount, duration,
+        validationStatus, validationIssues,
+        signalContributions, coverageStatus, sourceOutlineId, lockedBeatId
+      ] = values;
       const id = state.nextScriptId++;
       state.scripts.set(id, {
         id,
@@ -435,6 +446,10 @@ function createMockStoryPool(initialRows, { directions = [], outlines = [] } = {
         estimated_duration_seconds: duration,
         validation_status: validationStatus,
         validation_issues: JSON.parse(validationIssues),
+        signal_contributions: signalContributions ? JSON.parse(signalContributions) : null,
+        coverage_status: coverageStatus ? JSON.parse(coverageStatus) : null,
+        source_outline_id: sourceOutlineId ? Number(sourceOutlineId) : null,
+        locked_beat_id: lockedBeatId || null,
         locked_by: null,
         locked_at: null,
         superseded_at: null,
@@ -1821,6 +1836,288 @@ async function run() {
   }
 
   console.log("TASK 3.4E STORY WORKER TESTS PASSED");
+
+  // =========================================================
+  // Task 3.6: Outline/Script coverage inheritance, persistence,
+  // and validator-guided retry.
+  // =========================================================
+
+  function makeOutlinePayload(overrides = {}) {
+    const long = "A".repeat(100);
+    return {
+      outline_title: "T",
+      review_summary: "s",
+      opening_situation: long,
+      inciting_incident: long,
+      vehicle_and_driver_introduction: long,
+      world_conflict: long,
+      qualifier_challenge: long,
+      escalation: long,
+      choice_or_sacrifice: long,
+      outcome: long,
+      canon_state_impact: {
+        state: "PROPOSED_STATE_CHANGE",
+        target_state: "QUALIFIER_ENTERED",
+        entity_type: "DRIVER",
+        previous_state: "CANDIDATE_APPROVED",
+        evidence_refs: ["vehicle:9"],
+        reason: "r"
+      },
+      next_episode_hook: long,
+      evidence_map: ["vehicle:9"],
+      canon_constraints: [],
+      forbidden_elements_respected: [],
+      short_structure: {
+        hook_seconds: 3,
+        estimated_duration_seconds: 35,
+        narrative_beats: ["b"]
+      },
+      ...overrides
+    };
+  }
+
+  function makeFullCoverageOutlinePayload(overrides = {}) {
+    return makeOutlinePayload({
+      evidence_map: [
+        "vehicle:9",
+        "country_news:413",
+        "person:13",
+        "historical_resonance:13"
+      ],
+      ...overrides
+    });
+  }
+
+  // Outline inherits signal_contributions/coverage_status from the
+  // one selected direction (SINGLE mode) and persists them alongside
+  // the generated narrative, rather than re-asking Gemini for them.
+  {
+    const pool = createMockStoryPool(
+      [
+        regressionRunRow({
+          status: "GENERATING_OUTLINE",
+          selected_direction_ids: ["2000"],
+          selection_mode: "SINGLE"
+        })
+      ],
+      {
+        directions: [
+          {
+            id: 2000,
+            story_run_id: 1,
+            version: 1,
+            direction_key: "DIR-001",
+            direction_type: "INTEGRATED_STORY",
+            payload: makeRegressionDirection(),
+            validation_status: "PASS",
+            validation_issues: [],
+            superseded_at: null,
+            created_at: new Date()
+          }
+        ]
+      }
+    );
+
+    const result = await executeOutlineGeneration(
+      pool,
+      pool._state.runs.get(1),
+      {
+        loadCanonBundle: () => FAKE_CANON_BUNDLE,
+        generateJson: async () => ({
+          data: makeFullCoverageOutlinePayload(),
+          provider: "gemini",
+          model: "test-model",
+          inputTokens: 1,
+          outputTokens: 1,
+          totalTokens: 2,
+          latencyMs: 10
+        })
+      }
+    );
+
+    assert.equal(result.outcome, "STAGE_ADVANCED");
+
+    const outline = [...pool._state.outlines.values()][0];
+    assert.equal(outline.validation_status, "PASS");
+    assert.deepEqual(outline.source_direction_ids, ["2000"]);
+    assert.equal(outline.locked_beat_id, "BEAT-04");
+    assert.equal(outline.coverage_status.country_signal, "USED");
+    assert.deepEqual(outline.signal_contributions.vehicle.evidence_refs, ["vehicle:9"]);
+  }
+
+  // An outline that silently drops an inherited USED layer is
+  // BLOCKED (OUTLINE_COVERAGE_DROPPED), retried with feedback, and
+  // the corrected next attempt PASSes -- mirroring Directions'
+  // validator-guided retry loop.
+  {
+    const pool = createMockStoryPool(
+      [
+        regressionRunRow({
+          status: "GENERATING_OUTLINE",
+          selected_direction_ids: ["2001"],
+          selection_mode: "SINGLE"
+        })
+      ],
+      {
+        directions: [
+          {
+            id: 2001,
+            story_run_id: 1,
+            version: 1,
+            direction_key: "DIR-001",
+            direction_type: "INTEGRATED_STORY",
+            payload: makeRegressionDirection(),
+            validation_status: "PASS",
+            validation_issues: [],
+            superseded_at: null,
+            created_at: new Date()
+          }
+        ]
+      }
+    );
+
+    let call = 0;
+    const providerInputs = [];
+
+    const result = await executeOutlineGeneration(
+      pool,
+      pool._state.runs.get(1),
+      {
+        loadCanonBundle: () => FAKE_CANON_BUNDLE,
+        generateJson: async ({ input }) => {
+          call += 1;
+          providerInputs.push(input);
+
+          const data =
+            call === 1
+              ? makeOutlinePayload({ evidence_map: ["vehicle:9"] })
+              : makeFullCoverageOutlinePayload();
+
+          return {
+            data,
+            provider: "gemini",
+            model: "test-model",
+            inputTokens: 1,
+            outputTokens: 1,
+            totalTokens: 2,
+            latencyMs: 10
+          };
+        }
+      }
+    );
+
+    assert.equal(call, 2);
+    assert.equal(result.outcome, "STAGE_ADVANCED");
+    assert.ok(
+      providerInputs[1].retry_feedback.validation_issues.some(
+        issue => issue.code === "OUTLINE_COVERAGE_DROPPED"
+      )
+    );
+
+    const outline = [...pool._state.outlines.values()].find(
+      o => o.story_run_id === 1
+    );
+    assert.equal(outline.validation_status, "PASS");
+  }
+
+  // Scripts forward-propagate signal_contributions/coverage_status
+  // verbatim from the locked outline onto all three variants.
+  {
+    const lockedOutlinePayload = makeFullCoverageOutlinePayload();
+    const regressionDirection = makeRegressionDirection();
+
+    const pool = createMockStoryPool(
+      [regressionRunRow({ status: "GENERATING_SCRIPTS" })],
+      {
+        outlines: [
+          {
+            id: 700,
+            story_run_id: 1,
+            version: 1,
+            payload: lockedOutlinePayload,
+            validation_status: "PASS",
+            validation_issues: [],
+            signal_contributions: regressionDirection.signal_contributions,
+            coverage_status: regressionDirection.coverage_status,
+            source_direction_ids: ["2000"],
+            locked_beat_id: "BEAT-04",
+            locked_by: "michael",
+            locked_at: new Date(),
+            superseded_at: null,
+            created_at: new Date()
+          }
+        ]
+      }
+    );
+
+    const fullEvidence = [
+      "vehicle:9",
+      "country_news:413",
+      "person:13",
+      "historical_resonance:13"
+    ];
+
+    function makeScriptVariant(variantType) {
+      return {
+        variant_type: variantType,
+        title: "T",
+        hook: "h",
+        hook_type: "action",
+        vo_text: new Array(90).fill("word").join(" "),
+        ending_hook: "eh",
+        estimated_duration_seconds: 33,
+        shots: [1, 2, 3, 4, 5, 6].map(n => ({
+          shot_no: n,
+          duration_seconds: n === 1 ? 3 : 6,
+          visual: `v${n}`,
+          voiceover: `vo${n}`,
+          evidence_refs: fullEvidence
+        })),
+        evidence_map: fullEvidence,
+        canon_constraints: [],
+        ip_safety_notes: [],
+        risk_flags: [],
+        proposed_state_changes: []
+      };
+    }
+
+    const result = await executeScriptsGeneration(
+      pool,
+      pool._state.runs.get(1),
+      {
+        loadCanonBundle: () => FAKE_CANON_BUNDLE,
+        generateJson: async () => ({
+          data: {
+            scripts: [
+              makeScriptVariant("VEHICLE_FIRST"),
+              makeScriptVariant("WORLD_FIRST"),
+              makeScriptVariant("CHARACTER_FIRST")
+            ]
+          },
+          provider: "gemini",
+          model: "test-model",
+          inputTokens: 1,
+          outputTokens: 1,
+          totalTokens: 2,
+          latencyMs: 10
+        })
+      }
+    );
+
+    assert.equal(result.outcome, "STAGE_ADVANCED");
+
+    const scripts = [...pool._state.scripts.values()];
+    assert.equal(scripts.length, 3);
+
+    for (const script of scripts) {
+      assert.equal(script.validation_status, "PASS");
+      assert.equal(script.source_outline_id, 700);
+      assert.equal(script.locked_beat_id, "BEAT-04");
+      assert.deepEqual(script.coverage_status, regressionDirection.coverage_status);
+    }
+  }
+
+  console.log("TASK 3.6 STORY WORKER TESTS PASSED: coverage inheritance, retry loop, forward-propagation to Scripts");
 }
 
 run().catch(error => {

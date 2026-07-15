@@ -757,6 +757,12 @@ function outlineRow(runId, id, overrides = {}) {
     payload: {},
     validation_status: "PASS",
     validation_issues: [],
+    // Task 3.6: null by default (a legacy, pre-fix row) -- tests that
+    // need INTEGRATED_COVERAGE pass these explicitly.
+    signal_contributions: null,
+    coverage_status: null,
+    source_direction_ids: [],
+    locked_beat_id: null,
     locked_by: null,
     locked_at: null,
     superseded_at: null,
@@ -776,6 +782,12 @@ function scriptRow(runId, id, overrides = {}) {
     estimated_duration_seconds: 35,
     validation_status: "PASS",
     validation_issues: [],
+    // Task 3.6: null by default (a legacy, pre-fix row) -- tests that
+    // need INTEGRATED_COVERAGE pass these explicitly.
+    signal_contributions: null,
+    coverage_status: null,
+    source_outline_id: null,
+    locked_beat_id: null,
     locked_by: null,
     locked_at: null,
     superseded_at: null,
@@ -1716,6 +1728,104 @@ async function run() {
   }
 
   console.log("TASK 3.4E STORY API TESTS PASSED");
+
+  // =========================================================
+  // Task 3.6: Outline/Script coverage inheritance surfaced by
+  // getStoryRun, and legacy (pre-fix) rows tagged distinctly.
+  // =========================================================
+
+  const SAMPLE_COVERAGE_STATUS = {
+    vehicle_signal: "USED",
+    country_signal: "USED",
+    person_signal: "NOT_AVAILABLE",
+    historical_resonance: "NOT_AVAILABLE",
+    apex_rules: "USED",
+    locked_beat: "MATCH"
+  };
+
+  const SAMPLE_SIGNAL_CONTRIBUTIONS = {
+    vehicle: { evidence_refs: ["vehicle:9"], story_function: "grounds it" },
+    country: { evidence_refs: ["country_news:413"], story_function: "raises pressure" },
+    person: { person_signal: "NOT_AVAILABLE", historical_resonance: "NOT_AVAILABLE" },
+    apex: { beat_id: "BEAT-04", stage: "GLOBAL_QUALIFIERS" }
+  };
+
+  // A post-Task-3.6 outline row (full coverage provenance) is tagged
+  // INTEGRATED_COVERAGE and its fields are surfaced verbatim.
+  {
+    const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
+    const created = await createStoryRunHandler(pool, { fusion_candidate_id: 1 }, {});
+    const runId = created.payload.data.id;
+
+    pool._state.runs.get(Number(runId)).status = "AWAITING_OUTLINE_LOCK";
+    pool._state.outlines.set(
+      1,
+      outlineRow(runId, 1, {
+        signal_contributions: SAMPLE_SIGNAL_CONTRIBUTIONS,
+        coverage_status: SAMPLE_COVERAGE_STATUS,
+        source_direction_ids: ["101", "102"],
+        locked_beat_id: "BEAT-04"
+      })
+    );
+
+    const detail = await getStoryRun(pool, runId);
+    const outline = detail.payload.data.outline[0];
+
+    assert.equal(outline.outline_schema, "INTEGRATED_COVERAGE");
+    assert.deepEqual(outline.coverage_status, SAMPLE_COVERAGE_STATUS);
+    assert.deepEqual(outline.signal_contributions, SAMPLE_SIGNAL_CONTRIBUTIONS);
+    assert.deepEqual(outline.source_direction_ids, ["101", "102"]);
+    assert.equal(outline.locked_beat_id, "BEAT-04");
+  }
+
+  // A legacy (pre-Task-3.6) outline row -- no coverage provenance at
+  // all -- is tagged LEGACY_NO_COVERAGE.
+  {
+    const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
+    const created = await createStoryRunHandler(pool, { fusion_candidate_id: 1 }, {});
+    const runId = created.payload.data.id;
+
+    pool._state.runs.get(Number(runId)).status = "AWAITING_OUTLINE_LOCK";
+    pool._state.outlines.set(1, outlineRow(runId, 1));
+
+    const detail = await getStoryRun(pool, runId);
+    const outline = detail.payload.data.outline[0];
+
+    assert.equal(outline.outline_schema, "LEGACY_NO_COVERAGE");
+    assert.equal(outline.coverage_status, null);
+  }
+
+  // Same treatment for a Script row: INTEGRATED_COVERAGE when
+  // forward-propagated from a locked outline, LEGACY_NO_COVERAGE
+  // otherwise.
+  {
+    const pool = createMockDb({ candidates: { 1: seedCandidate(1) } });
+    const created = await createStoryRunHandler(pool, { fusion_candidate_id: 1 }, {});
+    const runId = created.payload.data.id;
+
+    pool._state.runs.get(Number(runId)).status = "AWAITING_SCRIPT_LOCK";
+    pool._state.scripts.set(
+      1,
+      scriptRow(runId, 1, {
+        signal_contributions: SAMPLE_SIGNAL_CONTRIBUTIONS,
+        coverage_status: SAMPLE_COVERAGE_STATUS,
+        source_outline_id: 55,
+        locked_beat_id: "BEAT-04"
+      })
+    );
+    pool._state.scripts.set(2, scriptRow(runId, 2));
+
+    const detail = await getStoryRun(pool, runId);
+    const scripts = detail.payload.data.scripts;
+    const integrated = scripts.find(s => s.id === "1");
+    const legacy = scripts.find(s => s.id === "2");
+
+    assert.equal(integrated.script_schema, "INTEGRATED_COVERAGE");
+    assert.equal(integrated.source_outline_id, "55");
+    assert.equal(legacy.script_schema, "LEGACY_NO_COVERAGE");
+  }
+
+  console.log("TASK 3.6 STORY API TESTS PASSED: outline/script coverage serialization");
 }
 
 run().catch(error => {

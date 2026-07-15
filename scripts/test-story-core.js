@@ -24,6 +24,11 @@ const {
   validateScript
 } = require("../lib/story/validators");
 
+const {
+  computeCoverageStatusFromSnapshot,
+  mergeSignalContributions
+} = require("../lib/story/engine");
+
 // ---------------------------------------------------------
 // Fixtures: valid canon documents written to a throwaway temp
 // directory per case, so canon.js's file-missing / not-approved
@@ -1468,6 +1473,246 @@ function run() {
   }
 
   console.log("TASK 3.4E STORY CORE TESTS PASSED");
+
+  // =========================================================
+  // Task 3.6: Outline/Script Integrated Signals inheritance +
+  // coverage continuity.
+  // =========================================================
+
+  // -------------------------------------------------------
+  // computeCoverageStatusFromSnapshot: a pure function of the
+  // candidate snapshot's country_news/no_person_signal facts --
+  // vehicle/apex are always USED, country/person/historical follow
+  // the snapshot exactly.
+  // -------------------------------------------------------
+  {
+    const allSignals = computeCoverageStatusFromSnapshot({
+      country_news: { id: "country_news:413" },
+      no_person_signal: false
+    });
+    assert.deepEqual(allSignals, {
+      vehicle_signal: "USED",
+      country_signal: "USED",
+      person_signal: "USED",
+      historical_resonance: "USED",
+      apex_rules: "USED",
+      locked_beat: "MATCH"
+    });
+
+    const noSignals = computeCoverageStatusFromSnapshot({
+      country_news: null,
+      no_person_signal: true
+    });
+    assert.deepEqual(noSignals, {
+      vehicle_signal: "USED",
+      country_signal: "NOT_AVAILABLE",
+      person_signal: "NOT_AVAILABLE",
+      historical_resonance: "NOT_AVAILABLE",
+      apex_rules: "USED",
+      locked_beat: "MATCH"
+    });
+  }
+
+  // -------------------------------------------------------
+  // mergeSignalContributions: SINGLE mode returns the one direction's
+  // signal_contributions verbatim; MERGE mode unions evidence_refs
+  // per layer and keeps a NOT_AVAILABLE marker instead of inventing
+  // evidence_refs for a layer that does not exist.
+  // -------------------------------------------------------
+  {
+    const directionA = makeIntegratedDirection("TECHNICAL_SACRIFICE");
+
+    const single = mergeSignalContributions([directionA]);
+    assert.deepEqual(single, directionA.signal_contributions);
+
+    const directionB = makeIntegratedDirection("SURVEILLANCE_TRAP", {
+      signal_contributions: {
+        ...makeIntegratedDirection("SURVEILLANCE_TRAP").signal_contributions,
+        vehicle: {
+          evidence_refs: ["vehicle:9", "vehicle:extra"],
+          story_function: "adds a secondary system view",
+          preserved_traits: ["speed", "handling"],
+          transformed_traits: ["color"]
+        }
+      }
+    });
+
+    const merged = mergeSignalContributions([directionA, directionB]);
+    assert.deepEqual(
+      new Set(merged.vehicle.evidence_refs),
+      new Set(["vehicle:9", "vehicle:extra"])
+    );
+    assert.deepEqual(
+      new Set(merged.vehicle.preserved_traits),
+      new Set(["speed", "handling"])
+    );
+    // beat_id is identical across every direction in a batch -- apex
+    // is kept from the first payload verbatim rather than merged.
+    assert.deepEqual(merged.apex, directionA.signal_contributions.apex);
+
+    const noCountryA = makeIntegratedDirection("TECHNICAL_SACRIFICE", {
+      signal_contributions: {
+        ...makeIntegratedDirection("TECHNICAL_SACRIFICE").signal_contributions,
+        country: { country_signal: "NOT_AVAILABLE" }
+      }
+    });
+    const noCountryB = makeIntegratedDirection("SURVEILLANCE_TRAP", {
+      signal_contributions: {
+        ...makeIntegratedDirection("SURVEILLANCE_TRAP").signal_contributions,
+        country: { country_signal: "NOT_AVAILABLE" }
+      }
+    });
+    const mergedNoCountry = mergeSignalContributions([noCountryA, noCountryB]);
+    assert.deepEqual(mergedNoCountry.country, {
+      country_signal: "NOT_AVAILABLE"
+    });
+  }
+
+  // -------------------------------------------------------
+  // Outline coverage continuity (runOutlineCoverageContinuityValidator,
+  // wired into validateOutline): an outline that silently drops a
+  // layer its selected direction(s) already committed to using as
+  // USED is BLOCKED, a NOT_AVAILABLE layer is never checked, and a
+  // legacy context (no inherited coverage data) never triggers the
+  // check at all.
+  // -------------------------------------------------------
+  {
+    const inheritedDirection = makeIntegratedDirection("TECHNICAL_SACRIFICE");
+    const inheritedSignalContributions = inheritedDirection.signal_contributions;
+    const inheritedCoverageStatus = inheritedDirection.coverage_status;
+
+    const baseContext = {
+      evidenceIds: REGRESSION_EVIDENCE_IDS,
+      noPersonSignal: false,
+      inheritedSignalContributions,
+      inheritedCoverageStatus
+    };
+
+    // makeOutline()'s default canon_state_impact.evidence_refs is
+    // ["vehicle:1"], which is outside REGRESSION_EVIDENCE_IDS -- swap
+    // it for a regression-fixture ref so these cases only exercise
+    // the new coverage-continuity check, not an unrelated
+    // EVIDENCE_REF_NOT_FOUND from the pre-existing evidence validator.
+    const canonStateImpactWithRegressionEvidence = {
+      state: "PROPOSED_STATE_CHANGE",
+      target_state: "QUALIFIER_ENTERED",
+      entity_type: "DRIVER",
+      previous_state: "CANDIDATE_APPROVED",
+      evidence_refs: ["vehicle:9"],
+      reason: "reason"
+    };
+
+    const goodOutline = makeOutline({
+      canon_state_impact: canonStateImpactWithRegressionEvidence,
+      evidence_map: [
+        "vehicle:9",
+        "country_news:413",
+        "person:13",
+        "historical_resonance:13"
+      ]
+    });
+    assert.equal(
+      validateOutline(goodOutline, baseContext).validation_status,
+      "PASS"
+    );
+
+    const droppedCountryOutline = makeOutline({
+      canon_state_impact: canonStateImpactWithRegressionEvidence,
+      evidence_map: ["vehicle:9", "person:13", "historical_resonance:13"]
+    });
+    const droppedResult = validateOutline(droppedCountryOutline, baseContext);
+    assert.equal(droppedResult.validation_status, "BLOCKED");
+    assert.ok(
+      droppedResult.issues.some(i => i.code === "OUTLINE_COVERAGE_DROPPED")
+    );
+
+    const noCountryNoPersonContext = {
+      ...baseContext,
+      inheritedCoverageStatus: {
+        ...inheritedCoverageStatus,
+        country_signal: "NOT_AVAILABLE",
+        person_signal: "NOT_AVAILABLE",
+        historical_resonance: "NOT_AVAILABLE"
+      }
+    };
+    const vehicleOnlyOutline = makeOutline({
+      canon_state_impact: canonStateImpactWithRegressionEvidence,
+      evidence_map: ["vehicle:9"]
+    });
+    assert.equal(
+      validateOutline(vehicleOnlyOutline, noCountryNoPersonContext)
+        .validation_status,
+      "PASS"
+    );
+
+    const legacyOutline = makeOutline();
+    assert.equal(
+      validateOutline(legacyOutline, {
+        evidenceIds: new Set(["vehicle:1"]),
+        noPersonSignal: false
+      }).validation_status,
+      "PASS"
+    );
+  }
+
+  // -------------------------------------------------------
+  // Script coverage continuity (runScriptCoverageContinuityValidator,
+  // wired into validateScript): same rules as Outline, checked
+  // independently per variant.
+  // -------------------------------------------------------
+  {
+    const inheritedDirection = makeIntegratedDirection("TECHNICAL_SACRIFICE");
+    const inheritedSignalContributions = inheritedDirection.signal_contributions;
+    const inheritedCoverageStatus = inheritedDirection.coverage_status;
+
+    const baseContext = {
+      evidenceIds: REGRESSION_EVIDENCE_IDS,
+      noPersonSignal: false,
+      language: "en",
+      inheritedSignalContributions,
+      inheritedCoverageStatus
+    };
+
+    function shotsWithEvidence(ref) {
+      return makeShots(6).map(shot => ({ ...shot, evidence_refs: [ref] }));
+    }
+
+    const goodScript = makeScript("VEHICLE_FIRST", {
+      shots: shotsWithEvidence("vehicle:9"),
+      evidence_map: [
+        "vehicle:9",
+        "country_news:413",
+        "person:13",
+        "historical_resonance:13"
+      ]
+    });
+    assert.equal(
+      validateScript(goodScript, baseContext).validation_status,
+      "PASS"
+    );
+
+    const droppedPersonScript = makeScript("VEHICLE_FIRST", {
+      shots: shotsWithEvidence("vehicle:9"),
+      evidence_map: ["vehicle:9", "country_news:413"]
+    });
+    const droppedResult = validateScript(droppedPersonScript, baseContext);
+    assert.equal(droppedResult.validation_status, "BLOCKED");
+    assert.ok(
+      droppedResult.issues.some(i => i.code === "SCRIPT_COVERAGE_DROPPED")
+    );
+
+    const legacyScript = makeScript("VEHICLE_FIRST");
+    assert.equal(
+      validateScript(legacyScript, {
+        evidenceIds: new Set(["vehicle:1"]),
+        noPersonSignal: false,
+        language: "en"
+      }).validation_status,
+      "PASS"
+    );
+  }
+
+  console.log("TASK 3.6 STORY CORE TESTS PASSED: coverage inheritance + continuity validators");
 }
 
 run();
