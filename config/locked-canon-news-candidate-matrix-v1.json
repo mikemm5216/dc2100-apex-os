@@ -1,0 +1,37 @@
+{
+  "version": "locked-canon-news-candidate-matrix-v1",
+  "content_mode": "LOCKED_CANON",
+  "generated_at": "2026-07-16T00:00:00.000Z",
+  "source": {
+    "environment": "Railway Production",
+    "api": "https://dc2100-apex-os-production.up.railway.app",
+    "endpoint": "/country-news?window_hours=168&country_code={canon_country_code}&sort=traffic_score&limit=10&offset=0",
+    "read_only": true
+  },
+  "binding_method": "CANON_COUNTRY_CODE",
+  "execution_counters": {
+    "pair_runs": 0,
+    "fusion_runs": 0,
+    "youtube_runs": 0,
+    "gemini_calls": 0,
+    "canon_vehicles_changed": 0,
+    "canon_drivers_changed": 0
+  },
+  "slots": [
+    { "slot_id": "CANDIDATE_SLOT_01", "canon_country_code": "US", "identity_status": "READY", "news_status": "READY", "candidates": [{ "rank": 1, "country_news_signal_id": "447", "title": "The US launches more strikes on Iran as the standoff over the Strait of Hormuz escalates - AP News", "source": "AP News", "category": "WAR_SECURITY", "published_at": "2026-07-13T02:29:00.000Z", "traffic_score": 56.74, "transformation_tier": "LOW", "transformation_potential": 28.51 }] },
+    { "slot_id": "CANDIDATE_SLOT_02", "canon_country_code": "JP", "identity_status": "READY", "news_status": "READY", "candidates": [{ "rank": 1, "country_news_signal_id": "400", "title": "Russia goes to Japan for tech in Ukraine war: Report - The Hill", "source": "The Hill", "category": "WAR_SECURITY", "published_at": "2026-07-12T20:59:00.000Z", "traffic_score": 42.23, "transformation_tier": "LOW", "transformation_potential": 31.33 }] },
+    { "slot_id": "CANDIDATE_SLOT_03", "canon_country_code": "AU", "identity_status": "CANON_FIELD_REVIEW_REQUIRED", "news_status": "NO_COUNTRY_NEWS_CANDIDATE", "candidates": [] },
+    { "slot_id": "CANDIDATE_SLOT_04", "canon_country_code": "TW", "identity_status": "READY", "news_status": "NO_COUNTRY_NEWS_CANDIDATE", "candidates": [] },
+    { "slot_id": "CANDIDATE_SLOT_05", "canon_country_code": "TW", "identity_status": "READY", "news_status": "NO_COUNTRY_NEWS_CANDIDATE", "candidates": [] },
+    { "slot_id": "CANDIDATE_SLOT_06", "canon_country_code": "JP", "identity_status": "READY", "news_status": "READY", "candidates": [{ "rank": 1, "country_news_signal_id": "400", "title": "Russia goes to Japan for tech in Ukraine war: Report - The Hill", "source": "The Hill", "category": "WAR_SECURITY", "published_at": "2026-07-12T20:59:00.000Z", "traffic_score": 42.23, "transformation_tier": "LOW", "transformation_potential": 31.33 }] },
+    { "slot_id": "CANDIDATE_SLOT_07", "canon_country_code": "JP", "identity_status": "READY", "news_status": "READY", "candidates": [{ "rank": 1, "country_news_signal_id": "400", "title": "Russia goes to Japan for tech in Ukraine war: Report - The Hill", "source": "The Hill", "category": "WAR_SECURITY", "published_at": "2026-07-12T20:59:00.000Z", "traffic_score": 42.23, "transformation_tier": "LOW", "transformation_potential": 31.33 }] },
+    { "slot_id": "CANDIDATE_SLOT_08", "canon_country_code": "CN", "identity_status": "READY", "news_status": "NO_COUNTRY_NEWS_CANDIDATE", "candidates": [] },
+    { "slot_id": "CANDIDATE_SLOT_09", "canon_country_code": "KR", "identity_status": "READY", "news_status": "READY", "candidates": [{ "rank": 1, "country_news_signal_id": "1459", "title": "South Korea's central bank hikes rate for 1st time since 2023 to curb inflation, debt - ABC News", "source": "ABC News", "category": "ECONOMY", "published_at": "2026-07-16T06:18:32.000Z", "traffic_score": 67.62, "transformation_tier": "MEDIUM", "transformation_potential": 45.14 }] },
+    { "slot_id": "CANDIDATE_SLOT_10", "canon_country_code": "DE", "identity_status": "READY", "news_status": "READY", "candidates": [{ "rank": 1, "country_news_signal_id": "16", "title": "Germany's Ruhr Valley: Cities on brink of financial collapse - DW.com", "source": "DW.com", "category": "ECONOMY", "published_at": "2026-07-13T10:41:15.000Z", "traffic_score": 41.86, "transformation_tier": "MEDIUM", "transformation_potential": 46.28 }] },
+    { "slot_id": "CANDIDATE_SLOT_11", "canon_country_code": "IT", "identity_status": "CANON_FIELD_REVIEW_REQUIRED", "news_status": "READY", "candidates": [{ "rank": 1, "country_news_signal_id": "1388", "title": "Italy court to deliver verdict in deadly bridge collapse - Kuwait Times", "source": "Kuwait Times", "category": "INFRASTRUCTURE", "published_at": "2026-07-16T08:21:40.000Z", "traffic_score": 54.87, "transformation_tier": "MEDIUM", "transformation_potential": 48.23 }] },
+    { "slot_id": "CANDIDATE_SLOT_12", "canon_country_code": "GB", "identity_status": "READY", "news_status": "READY", "candidates": [{ "rank": 1, "country_news_signal_id": "751", "title": "UK Targets Russian Cyber Networks With New Sanctions - U.S. News & World Report", "source": "U.S. News & World Report", "category": "SANCTIONS_TRADE", "published_at": "2026-07-13T09:05:28.000Z", "traffic_score": 54.67, "transformation_tier": "MEDIUM", "transformation_potential": 43.2 }] },
+    { "slot_id": "CANDIDATE_SLOT_13", "canon_country_code": "SE", "identity_status": "READY", "news_status": "READY", "candidates": [{ "rank": 1, "country_news_signal_id": "1577", "title": "Swedish pension firm delivers strong result and continues to invest in AI - AMWatch", "source": "AMWatch", "category": "SEMICONDUCTORS_AI", "published_at": "2026-07-16T07:59:18.000Z", "traffic_score": 39.82, "transformation_tier": "LOW", "transformation_potential": 25.97 }] },
+    { "slot_id": "CANDIDATE_SLOT_14", "canon_country_code": "GB", "identity_status": "CANON_FIELD_REVIEW_REQUIRED", "news_status": "READY", "candidates": [{ "rank": 1, "country_news_signal_id": "751", "title": "UK Targets Russian Cyber Networks With New Sanctions - U.S. News & World Report", "source": "U.S. News & World Report", "category": "SANCTIONS_TRADE", "published_at": "2026-07-13T09:05:28.000Z", "traffic_score": 54.67, "transformation_tier": "MEDIUM", "transformation_potential": 43.2 }] },
+    { "slot_id": "CANDIDATE_SLOT_15", "canon_country_code": "JP", "identity_status": "CANON_FIELD_REVIEW_REQUIRED", "news_status": "READY", "candidates": [{ "rank": 1, "country_news_signal_id": "400", "title": "Russia goes to Japan for tech in Ukraine war: Report - The Hill", "source": "The Hill", "category": "WAR_SECURITY", "published_at": "2026-07-12T20:59:00.000Z", "traffic_score": 42.23, "transformation_tier": "LOW", "transformation_potential": 31.33 }] }
+  ]
+}

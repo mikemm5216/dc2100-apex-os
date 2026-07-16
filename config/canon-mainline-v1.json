@@ -1,0 +1,90 @@
+{
+  "version": "canon-mainline-v1",
+  "content_mode": "LOCKED_CANON",
+  "visibility": "PUBLIC_CANON_PROJECTION",
+  "source": {
+    "document": "Gemini.docx",
+    "drive_file_id": "1hXjOVLEKSGhzhZuzXVRPlVD-FWFM7gY8",
+    "extraction_method": "NORMALIZED_FACTS_AND_BEATS_ONLY"
+  },
+  "mainline_id": "APEX-2100-MAINLINE-V1",
+  "canonical_title": "Apex Grand Prix 2100",
+  "status": "DRAFT_NEEDS_LEGAL_SAFE_ADAPTATION",
+  "world": {
+    "year": 2100,
+    "post_nuclear_state": "核戰後，地表由受污染的城市、工業遺址與傳奇賽道廢墟構成。",
+    "dome_cities": "倖存人口集中於高科技穹頂城市；城市以無菌、安全、低碳與可預測秩序為優先。",
+    "surface_order": "AI 調度、純電載具與磁浮運輸構成穹頂及地上社會的主流交通秩序。",
+    "combustion_ban": "內燃機、黑市燃油與非授權機械競速被主流秩序禁止，成為地下文化。",
+    "wasteland": "穹頂之外的拾荒者修復舊世代機械，並在地下工坊維持燃油、零件及駕駛知識。",
+    "legendary_track_ruins": "舊世界知名賽道與山路遺址被地下 APEX 重新啟用為高風險競技場。"
+  },
+  "apex": {
+    "organization": "非官方地下競技網路",
+    "public_name": "Apex Grand Prix",
+    "function": "讓被禁的機械與駕駛文化在廢土賽道上接受生存、控制與信念考驗。",
+    "rules": [
+      "禁止 AI 代替車手完成核心駕駛決策",
+      "參賽者必須自行承擔廢墟路面、機械失效與心理壓力",
+      "每站結果必須延續至同一 Season 狀態，不得重置人物或車輛",
+      "未驗證車輛及改裝數據不得成為公開 Canon 事實"
+    ],
+    "competitive_philosophy": {
+      "physiological": "車手必須承受速度、疲勞、恐懼與感官負荷。",
+      "psychological": "決策、信念、風險判斷及團隊信任會改變競賽結果。",
+      "mechanical": "車輛可靠性、抓地、熱管理與維修選擇決定機械能否完成考驗。",
+      "synthesis": "APEX 將人的生理、心理與機械狀態視為同一套不可分割的競技系統。"
+    }
+  },
+  "central_conflict": {
+    "dome_ev_order": "穹頂的純電與 AI 秩序相信可測量、安全及無聲的運輸才是文明。",
+    "underground_combustion_factions": "地下陣營把可維修的機械、聲音、風險與人工控制視為自由及記憶。",
+    "electric_heretic": "神之 15 人中唯一的純電參賽者進入地下賽事，使衝突成為理念驗證，而不是國家或品牌政權宣傳。",
+    "season_question": "兩種技術與價值觀能否在同一套 APEX 規則下競爭，而不抹除彼此的存在？"
+  },
+  "mainline_sequence": [
+    "EP0-WORLD-REVEAL",
+    "EP0-APEX-INTRODUCTION",
+    "EP0-ROSTER-ASSEMBLY",
+    "AKINA-QUALIFIER-START",
+    "AKINA-SLOT-01..AKINA-SLOT-15",
+    "AKINA-QUALIFIER-RESULT",
+    "NEXT-STATION-TRANSITION"
+  ],
+  "continuity_invariants": {
+    "single_world": true,
+    "single_akina_qualifier": true,
+    "parallel_worlds": false,
+    "locked_roster_ref": "locked-canon-roster-15-v1",
+    "locked_slot_count": 15,
+    "slot_15_driver_status": "CANON_FIELD_REVIEW_REQUIRED",
+    "canon_vehicle_changes_allowed": false,
+    "canon_driver_substitution_allowed": false,
+    "country_news_binding": "canon_country_code"
+  },
+  "artifacts": {
+    "episode_0": "config/canon-episode-0-v1.json",
+    "season_1_beat_map": "config/canon-season-1-beat-map-v1.json",
+    "source_evidence": "config/canon-source-evidence-map-v1.json",
+    "news_matrix": "config/locked-canon-news-candidate-matrix-v1.json",
+    "guest_pool": "config/station-guest-reserved-source-pool-v1.json"
+  },
+  "ip_risk_ids": [
+    "IP-RISK-COMMENTATOR-ARCHETYPE",
+    "IP-RISK-OBSERVER-VEHICLE",
+    "IP-RISK-SLOT-15-SOURCE-IDENTITY",
+    "IP-RISK-REAL-PERSON-STORY-IDENTITY",
+    "IP-RISK-REAL-NICKNAME-PUBLIC-CANON",
+    "IP-RISK-BRAND-AS-POLITICAL-REGIME",
+    "IP-RISK-UNVERIFIED-VEHICLE-DATA",
+    "IP-RISK-UNVERIFIED-MODIFICATION-DATA"
+  ],
+  "generation_state": {
+    "outline_generated": false,
+    "script_generated": false,
+    "youtube_calls": 0,
+    "pair_runs": 0,
+    "fusion_runs": 0,
+    "gemini_calls": 0
+  }
+}

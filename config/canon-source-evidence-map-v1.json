@@ -1,0 +1,61 @@
+{
+  "version": "canon-source-evidence-map-v1",
+  "visibility": "INTERNAL_EVIDENCE_ONLY",
+  "source": {
+    "document": "Gemini.docx",
+    "drive_file_id": "1hXjOVLEKSGhzhZuzXVRPlVD-FWFM7gY8",
+    "content_policy": "Normalized summaries only; no long source passages."
+  },
+  "mainline_evidence": [
+    { "evidence_id": "SRC-WORLD-2100", "supports": ["world.year", "world.post_nuclear_state"], "normalized_fact": "故事發生於核戰後的西元 2100 年。" },
+    { "evidence_id": "SRC-DOME-ORDER", "supports": ["world.dome_cities", "world.surface_order"], "normalized_fact": "穹頂以 AI、純電及磁浮運輸建立安全與無菌秩序。" },
+    { "evidence_id": "SRC-COMBUSTION-UNDERGROUND", "supports": ["world.combustion_ban", "world.wasteland"], "normalized_fact": "內燃機被主流秩序排除，地下拾荒者保存燃油及修復文化。" },
+    { "evidence_id": "SRC-APEX-TRACK-RUINS", "supports": ["apex.organization", "world.legendary_track_ruins"], "normalized_fact": "地下 APEX 在傳奇賽道廢墟舉行高風險競賽。" },
+    { "evidence_id": "SRC-APEX-PHILOSOPHY", "supports": ["apex.competitive_philosophy"], "normalized_fact": "人的承受、心理選擇與機械極限共同決定競技結果。" },
+    { "evidence_id": "SRC-GODS-15", "supports": ["continuity_invariants.locked_slot_count"], "normalized_fact": "十五席陣營在同一場秋名山廢墟資格賽集結。" },
+    { "evidence_id": "SRC-EV-HERETIC", "supports": ["central_conflict"], "normalized_fact": "唯一純電參賽者進入以內燃機陣營為主的地下賽事，形成技術與價值觀衝突。" },
+    { "evidence_id": "SRC-EP0-LONG", "supports": ["canon-episode-0-v1"], "normalized_fact": "EP0 依世界揭露、APEX 哲學、十五席集結與信號彈起跑構成連續前導。" },
+    { "evidence_id": "SRC-AKINA-CHAPTER", "supports": ["canon-season-1-beat-map-v1"], "normalized_fact": "第一篇章從秋名山廢墟資格賽開始，十五席必須共享同一時空與結果狀態。" }
+  ],
+  "restricted_locked_canon_evidence": [
+    {
+      "evidence_id": "SOURCE-EVIDENCE-BIG-CHIEF",
+      "restricted_source_identity": "Big Chief",
+      "usage_scope": "LOCKED_CANON_ONLY",
+      "assigned_slot": "CANDIDATE_SLOT_01",
+      "assigned_vehicle": "Pontiac GTO",
+      "allowed_abstract_traits": ["美式肌肉車地下文化", "車隊領袖", "粗獷機械風格", "階級與忠誠", "高風險直線競技"],
+      "prohibited_public_output": ["真人姓名", "真人綽號", "外貌", "生平", "真實車隊", "節目情節", "家庭資料"],
+      "merged_with_other_evidence": false,
+      "affects_canon_country_code": false
+    },
+    {
+      "evidence_id": "SOURCE-EVIDENCE-LIAO",
+      "restricted_source_identity": "廖老大",
+      "usage_scope": "LOCKED_CANON_ONLY",
+      "assigned_slot": "CANDIDATE_SLOT_04",
+      "assigned_vehicle": "Audi TT RS",
+      "allowed_abstract_traits": ["台灣民間改裝文化", "精密加速工程", "工坊主導技術", "紀錄挑戰性格", "民間工程對大型體制的反抗"],
+      "prohibited_public_output": ["真人姓名", "真人綽號", "外貌", "生平", "爭議", "公司", "工坊", "家庭資料"],
+      "merged_with_other_evidence": false,
+      "affects_canon_country_code": false
+    }
+  ],
+  "risk_registry": [
+    { "risk_id": "IP-RISK-COMMENTATOR-ARCHETYPE", "restricted_source_identity": "Doc Brown", "status": "DRAFT_NEEDS_LEGAL_SAFE_ADAPTATION", "original_function": "以高能量科學家型主持人解說地下賽事", "risk_type": "EXISTING_IP_CHARACTER", "preserve_story_function": "保留具技術知識且節奏強烈的原創 APEX 解說職能", "required_adaptation": "建立原創主持身份、外觀及聲音輪廓。", "replacement_required": true, "public_canon_replacement_status": "PENDING_ORIGINAL_IDENTITY", "unresolved_fields": ["original commentator name", "visual silhouette", "voice profile"] },
+    { "risk_id": "IP-RISK-OBSERVER-VEHICLE", "restricted_source_identity": "DeLorean", "status": "DRAFT_NEEDS_LEGAL_SAFE_ADAPTATION", "original_function": "提供可穿梭賽道的未來轉播與觀察載具", "risk_type": "TRADE_DRESS_AND_EXISTING_IP_VEHICLE", "preserve_story_function": "保留原創的機動轉播平台與賽道觀察功能", "required_adaptation": "建立不沿用既有車輛 trade dress 的原創觀察載具。", "replacement_required": true, "public_canon_replacement_status": "PENDING_ORIGINAL_VEHICLE_DESIGN", "unresolved_fields": ["original body geometry", "door system", "propulsion language"] },
+    { "risk_id": "IP-RISK-SLOT-15-SOURCE-IDENTITY", "restricted_source_identity": "MF Ghost character", "status": "DRAFT_NEEDS_LEGAL_SAFE_ADAPTATION", "original_function": "讓新世代車手承接舊世代駕駛傳奇", "risk_type": "EXISTING_IP_CHARACTER", "preserve_story_function": "保留傳承者席位、Toyota 86 與終局傳承功能", "required_adaptation": "由 Canon review 建立原創 driver 與 team；本輪維持 null。", "replacement_required": true, "public_canon_replacement_status": "CANON_FIELD_REVIEW_REQUIRED", "unresolved_fields": ["canon_driver_name", "team_name", "driver_archetype"] },
+    { "risk_id": "IP-RISK-REAL-PERSON-STORY-IDENTITY", "restricted_source_identity": "real persons used directly as story characters", "status": "DRAFT_NEEDS_LEGAL_SAFE_ADAPTATION", "original_function": "為車隊技術、文化或態度提供易辨識參考", "risk_type": "PUBLICITY_AND_FALSE_ENDORSEMENT", "preserve_story_function": "只保留已允許的抽象技術與文化特質", "required_adaptation": "移除公開真人身份，只投影抽象特質至原創角色。", "replacement_required": true, "public_canon_replacement_status": "INTERNAL_EVIDENCE_ONLY", "unresolved_fields": ["original fictional support identities where still missing"] },
+    { "risk_id": "IP-RISK-REAL-NICKNAME-PUBLIC-CANON", "restricted_source_identity": "real-person aliases and nicknames", "status": "DRAFT_NEEDS_LEGAL_SAFE_ADAPTATION", "original_function": "快速傳達來源人物的風格與社群辨識度", "risk_type": "PUBLICITY_AND_IDENTITY", "preserve_story_function": "以不具可識別性的原創角色特徵取代", "required_adaptation": "禁止真人姓名與 alias 進入公開 Canon。", "replacement_required": true, "public_canon_replacement_status": "PROHIBITED_FROM_PUBLIC_PROJECTION", "unresolved_fields": [] },
+    { "risk_id": "IP-RISK-BRAND-AS-POLITICAL-REGIME", "restricted_source_identity": "real brand represented as an official political regime", "status": "DRAFT_NEEDS_LEGAL_SAFE_ADAPTATION", "original_function": "具象化穹頂技術秩序對地下文化的壓力", "risk_type": "TRADEMARK_AND_FALSE_ASSOCIATION", "preserve_story_function": "使用原創穹頂治理架構；品牌只作已鎖定車輛 identity", "required_adaptation": "以原創穹頂治理機構取代任何品牌政治政權。", "replacement_required": true, "public_canon_replacement_status": "POLITICAL_ROLE_REMOVED", "unresolved_fields": ["fictional dome authority name"] },
+    { "risk_id": "IP-RISK-UNVERIFIED-VEHICLE-DATA", "restricted_source_identity": "unverified vehicle specifications", "status": "DRAFT_NEEDS_LEGAL_SAFE_ADAPTATION", "original_function": "透過數據差異建立十五台車的視覺張力", "risk_type": "FACTUAL_ACCURACY", "preserve_story_function": "保留比較框架但只發布已驗證數據", "required_adaptation": "逐欄驗證車輛數據，未驗證欄位保持 Draft。", "replacement_required": true, "public_canon_replacement_status": "VERIFICATION_REQUIRED", "unresolved_fields": ["power", "weight", "downforce", "top speed"] },
+    { "risk_id": "IP-RISK-UNVERIFIED-MODIFICATION-DATA", "restricted_source_identity": "unverified modification specifications", "status": "DRAFT_NEEDS_LEGAL_SAFE_ADAPTATION", "original_function": "讓每席的機械選擇推動單集試煉", "risk_type": "FACTUAL_ACCURACY_AND_SAFETY", "preserve_story_function": "保留改裝作為決策節點，但不生成或公開未驗證做法", "required_adaptation": "完成工程與安全查證後才可生成或公開改裝內容。", "replacement_required": true, "public_canon_replacement_status": "NOT_GENERATED", "unresolved_fields": ["parts", "settings", "performance claims", "safety implications"] }
+  ],
+  "projection_policy": {
+    "public_configs": ["config/canon-mainline-v1.json", "config/canon-episode-0-v1.json", "config/canon-season-1-beat-map-v1.json"],
+    "real_person_names_allowed": false,
+    "real_person_aliases_allowed": false,
+    "existing_ip_characters_allowed": false,
+    "reserved_guest_sources_allowed_in_locked_canon": false
+  }
+}

@@ -1229,19 +1229,22 @@ function runPersonDirectVideoRunValidationTests() {
   assert.deepEqual(defaultRun.value, {
     history_scope: "ALL_TIME",
     format: "SHORTS",
-    max_entities: 50
+    max_entities: 50,
+    station_run_key: null
   });
 
   const customRun = validatePersonDirectVideoRunPayload({
     history_scope: "ONE_YEAR",
     format: "ALL",
-    max_entities: 8
+    max_entities: 8,
+    station_run_key: null
   });
 
   assert.deepEqual(customRun.value, {
     history_scope: "ONE_YEAR",
     format: "ALL",
-    max_entities: 8
+    max_entities: 8,
+    station_run_key: null
   });
 
   for (const invalidBody of [

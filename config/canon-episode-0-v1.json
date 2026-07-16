@@ -1,0 +1,111 @@
+{
+  "version": "canon-episode-0-v1",
+  "visibility": "PUBLIC_CANON_PROJECTION",
+  "source_document": "Gemini.docx",
+  "mainline_id": "APEX-2100-MAINLINE-V1",
+  "episode_id": "EP0",
+  "episode_function": "在同一支前導篇中建立 2100 世界、APEX 哲學、15 席陣容與秋名山資格賽起點。",
+  "acts": [
+    {
+      "act_id": "ACT-1-2100-WORLD-REVEAL",
+      "time_range": "00:00-01:30",
+      "purpose": "揭露核戰後穹頂與廢土的雙層世界。",
+      "narration_beats": [
+        "時間定位於西元 2100 年。",
+        "核戰後倖存者以穹頂城市維持安全及無菌秩序。",
+        "AI、純電載具與磁浮運輸成為地上文明標準。",
+        "內燃機被禁止，但地下拾荒者仍保存燃油與修復技術。"
+      ],
+      "visual_beats": [
+        "受污染的城市與傳奇道路殘骸形成地表全景。",
+        "冰冷穹頂、無聲運輸與黑暗地下工坊形成對比。",
+        "被修復的機械第一次點火，宣告地下文化仍然存在。"
+      ],
+      "world_state_before": "觀眾尚不知道故事時間與文明結構。",
+      "world_state_after": "觀眾理解穹頂 EV/AI 秩序與廢土地下機械文化並存。",
+      "canon_entities": ["YEAR-2100", "DOME-CITIES", "WASTELAND", "COMBUSTION-BAN", "UNDERGROUND-WORKSHOPS"],
+      "roster_slots_present": [],
+      "apex_rules_introduced": [],
+      "ip_risks": ["IP-RISK-BRAND-AS-POLITICAL-REGIME"],
+      "required_adaptations": ["穹頂政權保持虛構，不以真實品牌命名或代表真實國家政治。"],
+      "unresolved_facts": ["核戰確切年份與責任方尚未鎖定。", "穹頂治理機構名稱尚未鎖定。"],
+      "continuity_dependencies": ["SEASON-START"]
+    },
+    {
+      "act_id": "ACT-2-APEX-RULES-AND-PHILOSOPHY",
+      "time_range": "01:30-04:00",
+      "purpose": "建立地下 APEX、傳奇賽道廢墟與生理／心理／機械競技哲學。",
+      "narration_beats": [
+        "地下競技網路重新啟動舊世界傳奇賽道遺址。",
+        "秋名山廢墟成為 Season 1 第一場資格賽。",
+        "速度不單由馬力決定；車手、團隊與機械狀態共同構成結果。",
+        "APEX 不提供安全保證，也不允許 AI 取代核心駕駛決策。"
+      ],
+      "visual_beats": [
+        "破損山路、坍塌盲彎與臨時維修區被重新點亮。",
+        "車手生理負荷、心理決策與機械熱狀態以三層資訊呈現。",
+        "地下組織以手動信號與臨時通訊維持比賽。"
+      ],
+      "world_state_before": "地下文化已被揭露，但尚未有共同競技規則。",
+      "world_state_after": "APEX 成為可延續賽季狀態的地下競技框架。",
+      "canon_entities": ["APEX-GRAND-PRIX", "AKINA-RUINS", "APEX-PHYSIOLOGY", "APEX-PSYCHOLOGY", "APEX-MECHANICS"],
+      "roster_slots_present": [],
+      "apex_rules_introduced": ["NO-AI-DRIVER-SUBSTITUTION", "SURVIVAL-AND-CONTROL-TRIAL", "CONTINUITY-PERSISTS", "UNVERIFIED-DATA-NOT-CANON"],
+      "ip_risks": ["IP-RISK-COMMENTATOR-ARCHETYPE", "IP-RISK-OBSERVER-VEHICLE", "IP-RISK-UNVERIFIED-VEHICLE-DATA"],
+      "required_adaptations": ["轉播主持與觀察載具必須使用原創身份及輪廓。", "數值未查證前只作 Draft evidence。"],
+      "unresolved_facts": ["APEX 主辦結構與裁決流程尚未鎖定。"],
+      "continuity_dependencies": ["ACT-1-2100-WORLD-REVEAL"]
+    },
+    {
+      "act_id": "ACT-3-GODS-OF-FIFTEEN-ASSEMBLE",
+      "time_range": "04:00-07:30",
+      "purpose": "讓 Locked Canon 15 在同一世界、同一維修區與同一場資格賽集結。",
+      "narration_beats": [
+        "十五支陣營以不同機械哲學進入秋名山廢墟。",
+        "十四台內燃機與唯一純電參賽者構成 Season 核心理念衝突。",
+        "每席車輛及車手身份只能來自 Locked Canon Roster。",
+        "Slot 15 保留席位及車輛，但公開車手身份仍待 Canon review。"
+      ],
+      "visual_beats": [
+        "十五個維修區共享同一地理空間與倒數時鐘。",
+        "各車只呈現已鎖定 identity；改裝與數值以待查證標籤處理。",
+        "純電異端的無聲進場與內燃機陣營形成聲音及價值觀反差。"
+      ],
+      "world_state_before": "APEX 規則存在，但參賽陣容尚未完整進場。",
+      "world_state_after": "十五席已在同一秋名山資格賽起跑區完成集結。",
+      "canon_entities": ["GODS-OF-FIFTEEN", "DOME-EV-HERETIC", "COMBUSTION-FACTIONS", "AKINA-QUALIFIER-01"],
+      "roster_slots_present": ["CANDIDATE_SLOT_01", "CANDIDATE_SLOT_02", "CANDIDATE_SLOT_03", "CANDIDATE_SLOT_04", "CANDIDATE_SLOT_05", "CANDIDATE_SLOT_06", "CANDIDATE_SLOT_07", "CANDIDATE_SLOT_08", "CANDIDATE_SLOT_09", "CANDIDATE_SLOT_10", "CANDIDATE_SLOT_11", "CANDIDATE_SLOT_12", "CANDIDATE_SLOT_13", "CANDIDATE_SLOT_14", "CANDIDATE_SLOT_15"],
+      "apex_rules_introduced": ["LOCKED-IDENTITY", "SINGLE-QUALIFIER-CONTINUITY"],
+      "ip_risks": ["IP-RISK-SLOT-15-SOURCE-IDENTITY", "IP-RISK-REAL-PERSON-STORY-IDENTITY", "IP-RISK-REAL-NICKNAME-PUBLIC-CANON", "IP-RISK-UNVERIFIED-MODIFICATION-DATA"],
+      "required_adaptations": ["所有真人 evidence 只轉換為抽象特質。", "Slot 15 車手維持 null，禁止以既有 IP 或 Reserved Guest 補位。", "未驗證改裝不得公開為事實。"],
+      "unresolved_facts": ["Slot 03、11、14 的 driver archetype 待 Canon review。", "Slot 15 的 driver、team 及 archetype 待 Canon review。"],
+      "continuity_dependencies": ["ACT-2-APEX-RULES-AND-PHILOSOPHY", "locked-canon-roster-15-v1"]
+    },
+    {
+      "act_id": "ACT-4-SIGNAL-FLARE-AKINA-QUALIFIER",
+      "time_range": "07:30-10:00",
+      "purpose": "以信號彈把 EP0 結尾直接銜接至同一場秋名山廢墟資格賽。",
+      "narration_beats": [
+        "十五席確認參加同一場秋名山廢墟資格賽。",
+        "Country News conflict 將依各席 canon_country_code 進入後續 Beat。",
+        "起跑信號升空，但本輪不生成任何 Slot 的決策、改裝、試煉或結果。",
+        "資格賽完成後才會進入下一站轉場。"
+      ],
+      "visual_beats": [
+        "同一條起跑線、同一組廢墟地標與同一支信號彈鎖定共同時空。",
+        "十五台車的待命狀態延續至 Season 1 Beat Map。",
+        "畫面在結果揭露前結束。"
+      ],
+      "world_state_before": "十五席已集結但資格賽尚未開始。",
+      "world_state_after": "AKINA-QUALIFIER-01 已開始；結果與所有 Slot 更新狀態保持未生成。",
+      "canon_entities": ["AKINA-QUALIFIER-01", "SIGNAL-FLARE", "GODS-OF-FIFTEEN"],
+      "roster_slots_present": ["CANDIDATE_SLOT_01", "CANDIDATE_SLOT_02", "CANDIDATE_SLOT_03", "CANDIDATE_SLOT_04", "CANDIDATE_SLOT_05", "CANDIDATE_SLOT_06", "CANDIDATE_SLOT_07", "CANDIDATE_SLOT_08", "CANDIDATE_SLOT_09", "CANDIDATE_SLOT_10", "CANDIDATE_SLOT_11", "CANDIDATE_SLOT_12", "CANDIDATE_SLOT_13", "CANDIDATE_SLOT_14", "CANDIDATE_SLOT_15"],
+      "apex_rules_introduced": ["COUNTRY-NEWS-BY-CANON-COUNTRY", "NO-PARALLEL-WORLDS", "RESULTS-MUST-UPDATE-CANON-STATE"],
+      "ip_risks": ["IP-RISK-SLOT-15-SOURCE-IDENTITY"],
+      "required_adaptations": ["公開投影不得輸出 Slot 15 來源 IP 人物。"],
+      "unresolved_facts": ["資格賽各席決策、改裝、試煉及結果尚未生成。", "下一站地點尚未鎖定。"],
+      "continuity_dependencies": ["ACT-3-GODS-OF-FIFTEEN-ASSEMBLE", "canon-season-1-beat-map-v1", "locked-canon-news-candidate-matrix-v1"]
+    }
+  ],
+  "generation_state": { "outline_generated": false, "script_generated": false }
+}
