@@ -5,6 +5,7 @@ function createMockDb({ run, pairs, newsByCountry }) {
   const state = {
     run: { ...run, status: "QUEUED" },
     candidates: [],
+    supersededMarked: false,
     statusHistory: ["QUEUED"],
     transactionLog: []
   };
@@ -42,6 +43,13 @@ function createMockDb({ run, pairs, newsByCountry }) {
     if (sql.includes("UPDATE fusion_runs") && sql.includes("status = $1")) {
       state.run.status = values[0];
       state.statusHistory.push(values[0]);
+      return { rows: [], rowCount: 1 };
+    }
+    if (
+      sql.includes("UPDATE fusion_runs") &&
+      sql.includes("superseded_by_run_id=$1")
+    ) {
+      state.supersededMarked = true;
       return { rows: [], rowCount: 1 };
     }
     if (sql.includes("UPDATE fusion_runs") && sql.includes("vehicle_count = $1")) {
@@ -96,6 +104,7 @@ async function run() {
   assert.deepEqual(db.state.transactionLog, ["BEGIN", "COMMIT"]);
   assert.deepEqual(db.state.statusHistory, ["QUEUED", "RUNNING", "COMPLETED"]);
   assert.equal(result.candidateCount, 1);
+  assert.equal(db.state.supersededMarked, true);
   const values = db.state.candidates[0];
   assert.equal(values[1], "1", "vehicle_id is preserved");
   assert.equal(values[2], "20", "country_id must bind to the person's country");
@@ -116,6 +125,7 @@ async function run() {
   assert.equal(noNews.status, "FAILED");
   assert.equal(noNews.candidateCount, 0);
   assert.equal(noNewsDb.state.candidates.length, 0, "vehicle-country news must not be used as fallback");
+  assert.equal(noNewsDb.state.supersededMarked, false);
   assert.equal(noNews.errors[0].code, "NO_PERSON_COUNTRY_NEWS");
 
   const noPairDb = createMockDb({
