@@ -533,8 +533,11 @@ async function pollVehiclePersonPairQueue() {
     log('vehicle_person_pair_run_completed', {
       run_id: result.runId,
       status: result.status,
-      vehicles_attempted: result.entitiesAttempted,
-      proven_pairs: result.provenPairs,
+      brands_scanned: result.entitiesAttempted,
+      proven_pairs_found: result.provenPairsFound,
+      founder_fallback_pairs_found: result.founderFallbackPairsFound,
+      selected_pair_count: result.results.length,
+      target_reached: result.summary.target_reached,
       errors: result.errors.length
     });
     return true;
