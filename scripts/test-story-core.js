@@ -209,8 +209,10 @@ function run() {
     const createRunFnStart = engineSource.indexOf(
       "async function createStoryRun"
     );
-    const createRunFnEnd = engineSource.indexOf(
-      "\n// =========================================================\n// GATE 1"
+    const gate1Marker = engineSource.indexOf("// GATE 1", createRunFnStart);
+    const createRunFnEnd = engineSource.lastIndexOf(
+      "// =========================================================",
+      gate1Marker
     );
 
     assert.ok(createRunFnStart > -1 && createRunFnEnd > createRunFnStart);

@@ -24,6 +24,9 @@ const {
 const {
   processNextPersonDirectVideoRun
 } = require("../../lib/person/person-direct-video-engine");
+const {
+  processNextVehiclePersonPairRun
+} = require("../../lib/person/vehicle-person-pair-engine");
 
 const {
   processNextFusionRun
@@ -520,6 +523,27 @@ async function pollPersonDirectVideoQueue() {
   }
 }
 
+async function pollVehiclePersonPairQueue() {
+  try {
+    const result = await processNextVehiclePersonPairRun(pool, {
+      workerId,
+      apiKey: process.env.YOUTUBE_API_KEY
+    });
+    if (!result) return false;
+    log('vehicle_person_pair_run_completed', {
+      run_id: result.runId,
+      status: result.status,
+      vehicles_attempted: result.entitiesAttempted,
+      proven_pairs: result.provenPairs,
+      errors: result.errors.length
+    });
+    return true;
+  } catch (error) {
+    if (error?.code !== '42P01') logError('vehicle_person_pair_poll_failed', error);
+    return false;
+  }
+}
+
 // Fusion queue: manual Run Now, or queued by the AutoFlow
 // poller as the FUSION step. Fusion never fetches new
 // evidence — it only aggregates what the other queues
@@ -750,6 +774,7 @@ const QUEUE_POLLERS = [
   pollPersonRadarQueue,
   pollCountryEventVideoQueue,
   pollPersonDirectVideoQueue,
+  pollVehiclePersonPairQueue,
   pollFusionQueue,
   pollAutoFlowQueueTick,
   pollStoryQueueTick

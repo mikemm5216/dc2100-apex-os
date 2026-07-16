@@ -25,7 +25,8 @@ assert.deepEqual(validRun.value, {
   news_window_hours: 72,
   max_news_per_vehicle: 2,
   max_people_per_vehicle: 2,
-  vehicle_ids: null
+  vehicle_ids: null,
+  pair_run_id: null
 });
 
 const defaultRun = validateFusionRunPayload({});
@@ -36,7 +37,8 @@ assert.deepEqual(defaultRun.value, {
   news_window_hours: 168,
   max_news_per_vehicle: 3,
   max_people_per_vehicle: 3,
-  vehicle_ids: null
+  vehicle_ids: null,
+  pair_run_id: null
 });
 
 for (const invalidBody of [
@@ -49,6 +51,8 @@ for (const invalidBody of [
   { max_people_per_vehicle: 6 },
   { vehicle_ids: [] },
   { vehicle_ids: ["abc"] },
+  { pair_run_id: 0 },
+  { pair_run_id: "abc" },
   null,
   []
 ]) {
@@ -68,6 +72,11 @@ const vehicleIdRun = validateFusionRunPayload({
 assert.deepEqual(
   vehicleIdRun.value.vehicle_ids,
   ["12", "34"]
+);
+
+assert.equal(
+  validateFusionRunPayload({ pair_run_id: "42" }).value.pair_run_id,
+  "42"
 );
 
 // ---------------------------------------------------------

@@ -19,6 +19,7 @@
     "test:person-api": "node scripts/test-person-api.js",
     "test:person-worker": "node scripts/test-person-worker.js",
     "test:person-direct-video-worker": "node scripts/test-person-direct-video-worker.js",
+    "test:vehicle-person-pair-worker": "node scripts/test-vehicle-person-pair-worker.js",
     "test:person-resonance": "node scripts/test-person-resonance.js",
     "test:fusion-core": "node scripts/test-fusion-core.js",
     "test:fusion-worker": "node scripts/test-fusion-worker.js",
