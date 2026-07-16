@@ -2360,3 +2360,256 @@ export async function fetchFusionRun(
 
   return response.data;
 }
+
+// =========================================================
+// COUNTRY DUAL-VIDEO SIGNAL PACK
+// =========================================================
+
+export type CountryPackFormat = "SHORTS" | "ALL";
+
+export type CountryPackStatus =
+  | "ALL"
+  | "COMPLETE"
+  | "VEHICLE_ONLY"
+  | "EVENT_ONLY"
+  | "NO_MATCH";
+
+export type CountryVehicleIdentityVideo = {
+  signal_id: string;
+  external_video_id: string | null;
+  video_title: string;
+  video_url: string;
+  thumbnail_url: string | null;
+  video_views: string;
+  published_at: string | null;
+  channel_title: string | null;
+  vehicle_id: string;
+  vehicle_code: string;
+  vehicle_name: string;
+  manufacturer: string | null;
+  entity_evidence: Record<string, unknown> | null;
+  entity_match_method: string | null;
+};
+
+export type CountryCurrentEventVideo = {
+  country_news_signal_id: string;
+  news_title: string;
+  news_source_url: string;
+  event_keywords: string[];
+  conflict_archetypes: string[];
+  signal_id: string;
+  external_video_id: string | null;
+  video_title: string;
+  video_url: string;
+  thumbnail_url: string | null;
+  video_views: string;
+  views_per_hour: string | null;
+  views_per_day: string | null;
+  published_at: string | null;
+  channel_title: string | null;
+  relevance_evidence: Record<string, unknown>;
+};
+
+export type CountryDualVideoPack = {
+  country_id: string;
+  country_code: string;
+  country_name: string;
+  status: CountryPackStatus;
+  shared_signal: boolean;
+  country_vehicle_identity_video: CountryVehicleIdentityVideo | null;
+  country_current_event_video: CountryCurrentEventVideo | null;
+};
+
+export type CountryDualVideoFilters = {
+  window_hours: 24 | 72 | 168;
+  format: CountryPackFormat;
+  status: CountryPackStatus;
+  limit: number;
+  offset: number;
+};
+
+export type CountryDualVideoResponse = {
+  data: CountryDualVideoPack[];
+  count: number;
+  total_count: number;
+  filters: CountryDualVideoFilters;
+};
+
+export type FetchCountryDualVideoInput = {
+  window_hours?: 24 | 72 | 168;
+  format?: CountryPackFormat;
+  status?: CountryPackStatus;
+  limit?: number;
+  offset?: number;
+};
+
+export async function fetchCountryDualVideoSignals(
+  input: FetchCountryDualVideoInput = {},
+  signal?: AbortSignal
+): Promise<CountryDualVideoResponse> {
+  const query = new URLSearchParams();
+
+  if (input.window_hours) {
+    query.set("window_hours", String(input.window_hours));
+  }
+
+  if (input.format) {
+    query.set("format", input.format);
+  }
+
+  if (input.status) {
+    query.set("status", input.status);
+  }
+
+  if (input.limit !== undefined) {
+    query.set("limit", String(input.limit));
+  }
+
+  if (input.offset !== undefined) {
+    query.set("offset", String(input.offset));
+  }
+
+  const queryString = query.toString();
+
+  return requestJson<CountryDualVideoResponse>(
+    `/country-dual-video-signals${
+      queryString ? `?${queryString}` : ""
+    }`,
+    {
+      method: "GET",
+      signal,
+    }
+  );
+}
+
+// =========================================================
+// PERSON DUAL-VIDEO SIGNAL PACK
+// =========================================================
+
+export type PersonPackFormat = "SHORTS" | "ALL";
+
+export type PersonPackHistoryScope =
+  | "ONE_YEAR"
+  | "TEN_YEARS"
+  | "ALL_TIME";
+
+export type PersonPackStatus =
+  | "ALL"
+  | "COMPLETE"
+  | "DIRECT_ONLY"
+  | "ASSOCIATION_ONLY"
+  | "NO_MATCH";
+
+export type PersonAssociationVideo = {
+  signal_id: string;
+  external_video_id: string | null;
+  video_title: string;
+  video_url: string;
+  thumbnail_url: string | null;
+  video_views: string;
+  published_at: string | null;
+  channel_title: string | null;
+  vehicle_id: string | null;
+  vehicle_brand: string | null;
+  vehicle_series: string | null;
+  vehicle_model: string | null;
+  vehicle_person_link_id: string;
+  relation_type: string;
+  association_level:
+    | "EXACT"
+    | "MODEL_ASSOCIATION"
+    | "SERIES_ASSOCIATION"
+    | "BRAND_ASSOCIATION";
+  link_confidence: string | null;
+  association_evidence: Record<string, unknown>;
+  direct_mention: boolean;
+  association_only: true;
+};
+
+export type PersonDirectHookVideo = {
+  signal_id: string;
+  external_video_id: string | null;
+  video_title: string;
+  video_url: string;
+  thumbnail_url: string | null;
+  video_views: string;
+  published_at: string | null;
+  channel_title: string | null;
+  matched_alias: string;
+  direct_mention_field: "TITLE" | "CHANNEL_TITLE";
+  direct_mention: true;
+  evidence: Record<string, unknown>;
+};
+
+export type PersonDualVideoPack = {
+  person_id: string;
+  person_slug: string;
+  canonical_name: string;
+  role_category: string;
+  status: PersonPackStatus;
+  shared_signal: boolean;
+  person_association_video: PersonAssociationVideo | null;
+  person_direct_hook_video: PersonDirectHookVideo | null;
+};
+
+export type PersonDualVideoFilters = {
+  history_scope: PersonPackHistoryScope;
+  format: PersonPackFormat;
+  status: PersonPackStatus;
+  limit: number;
+  offset: number;
+};
+
+export type PersonDualVideoResponse = {
+  data: PersonDualVideoPack[];
+  count: number;
+  total_count: number;
+  filters: PersonDualVideoFilters;
+};
+
+export type FetchPersonDualVideoInput = {
+  history_scope?: PersonPackHistoryScope;
+  format?: PersonPackFormat;
+  status?: PersonPackStatus;
+  limit?: number;
+  offset?: number;
+};
+
+export async function fetchPersonDualVideoSignals(
+  input: FetchPersonDualVideoInput = {},
+  signal?: AbortSignal
+): Promise<PersonDualVideoResponse> {
+  const query = new URLSearchParams();
+
+  if (input.history_scope) {
+    query.set("history_scope", input.history_scope);
+  }
+
+  if (input.format) {
+    query.set("format", input.format);
+  }
+
+  if (input.status) {
+    query.set("status", input.status);
+  }
+
+  if (input.limit !== undefined) {
+    query.set("limit", String(input.limit));
+  }
+
+  if (input.offset !== undefined) {
+    query.set("offset", String(input.offset));
+  }
+
+  const queryString = query.toString();
+
+  return requestJson<PersonDualVideoResponse>(
+    `/person-dual-video-signals${
+      queryString ? `?${queryString}` : ""
+    }`,
+    {
+      method: "GET",
+      signal,
+    }
+  );
+}

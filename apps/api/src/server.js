@@ -13,15 +13,19 @@ const {
 
 const {
   createCountryNewsRun,
+  getCountryDualVideoSignal,
   getCountryNewsDetail,
   getCountryNewsRun,
+  listCountryDualVideoSignals,
   listCountryNews
 } = require("../../../lib/news/api");
 
 const {
   createPersonRadarRun,
+  getPersonDualVideoSignal,
   getPersonRadarDetail,
   getPersonRadarRun,
+  listPersonDualVideoSignals,
   listPersonRadar
 } = require("../../../lib/person/api");
 
@@ -1361,6 +1365,55 @@ function createRequestHandler(pool) {
   }
 
   // =======================================================
+  // COUNTRY DUAL-VIDEO SIGNAL PACK
+  // =======================================================
+
+  if (
+    req.method === "GET" &&
+    pathname === "/country-dual-video-signals"
+  ) {
+    try {
+      const result = await listCountryDualVideoSignals(
+        pool,
+        requestUrl.searchParams
+      );
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  const countryDualVideoMatch = pathname.match(
+    /^\/country-dual-video-signals\/([0-9]+)$/
+  );
+
+  if (
+    req.method === "GET" &&
+    countryDualVideoMatch
+  ) {
+    try {
+      const result = await getCountryDualVideoSignal(
+        pool,
+        countryDualVideoMatch[1],
+        requestUrl.searchParams
+      );
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  // =======================================================
   // PERSON RADAR
   // =======================================================
 
@@ -1450,6 +1503,55 @@ function createRequestHandler(pool) {
       const result = await getPersonRadarDetail(
         pool,
         personRadarMatch[1]
+      );
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  // =======================================================
+  // PERSON DUAL-VIDEO SIGNAL PACK
+  // =======================================================
+
+  if (
+    req.method === "GET" &&
+    pathname === "/person-dual-video-signals"
+  ) {
+    try {
+      const result = await listPersonDualVideoSignals(
+        pool,
+        requestUrl.searchParams
+      );
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  const personDualVideoMatch = pathname.match(
+    /^\/person-dual-video-signals\/([0-9]+)$/
+  );
+
+  if (
+    req.method === "GET" &&
+    personDualVideoMatch
+  ) {
+    try {
+      const result = await getPersonDualVideoSignal(
+        pool,
+        personDualVideoMatch[1],
+        requestUrl.searchParams
       );
 
       return sendJson(

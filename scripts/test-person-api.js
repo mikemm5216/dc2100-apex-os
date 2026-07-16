@@ -1,10 +1,15 @@
 const assert = require("node:assert/strict");
 
+const { newDb } = require("pg-mem");
+
 const {
   PERSON_SORTS,
   createPersonRadarRun,
+  getPersonDualVideoSignal,
   getPersonRadarDetail,
+  listPersonDualVideoSignals,
   listPersonRadar,
+  parsePersonDualVideoQuery,
   parsePersonRadarQuery,
   validatePersonRunPayload
 } = require("../lib/person/api");
@@ -537,7 +542,531 @@ async function run() {
   );
 }
 
-run().catch(error => {
+// ---------------------------------------------------------
+// Person Dual-Video Signal Pack: query validation
+// ---------------------------------------------------------
+
+function runPersonDualVideoQueryValidationTests() {
+  const defaults = parsePersonDualVideoQuery(
+    new URLSearchParams()
+  );
+
+  assert.equal(defaults.value.historyScope, "ALL_TIME");
+  assert.equal(defaults.value.format, "SHORTS");
+  assert.equal(defaults.value.status, "COMPLETE");
+  assert.equal(defaults.value.limit, 10);
+
+  const invalidStatus = parsePersonDualVideoQuery(
+    new URLSearchParams({ status: "MAYBE" })
+  );
+  assert.equal(invalidStatus.error.statusCode, 400);
+
+  const invalidScope = parsePersonDualVideoQuery(
+    new URLSearchParams({ history_scope: "FIVE_YEARS" })
+  );
+  assert.equal(invalidScope.error.statusCode, 400);
+
+  console.log(
+    "PERSON DUAL VIDEO QUERY VALIDATION TESTS PASSED"
+  );
+}
+
+// ---------------------------------------------------------
+// Person Dual-Video Signal Pack: correctness (pg-mem)
+// ---------------------------------------------------------
+
+async function buildPersonDualVideoFixturePool() {
+  const db = newDb();
+  const { Pool } = db.adapters.createPg();
+  const pool = new Pool();
+
+  await pool.query(`
+    CREATE TABLE people (
+      id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      slug TEXT NOT NULL,
+      canonical_name TEXT NOT NULL,
+      aliases JSONB NOT NULL DEFAULT '[]'::jsonb,
+      role_category TEXT NOT NULL DEFAULT 'OTHER',
+      active BOOLEAN NOT NULL DEFAULT TRUE
+    );
+
+    CREATE TABLE vehicles (
+      id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      code TEXT,
+      name TEXT,
+      manufacturer TEXT
+    );
+
+    CREATE TABLE vehicle_person_links (
+      id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      person_id BIGINT NOT NULL,
+      vehicle_id BIGINT,
+      vehicle_brand TEXT,
+      vehicle_series TEXT,
+      vehicle_model TEXT,
+      relation_type TEXT NOT NULL DEFAULT 'OTHER',
+      link_confidence NUMERIC(5, 4),
+      link_evidence JSONB NOT NULL DEFAULT '{}'::jsonb
+    );
+
+    CREATE TABLE signals (
+      id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      external_id TEXT,
+      resolved_vehicle_id BIGINT,
+      vehicle_brand TEXT,
+      vehicle_series TEXT,
+      vehicle_model TEXT,
+      entity_resolution_status TEXT NOT NULL DEFAULT 'UNRESOLVED',
+      views BIGINT NOT NULL DEFAULT 0,
+      title TEXT,
+      url TEXT,
+      thumbnail_url TEXT,
+      channel_title TEXT,
+      published_at TIMESTAMPTZ,
+      is_short BOOLEAN NOT NULL DEFAULT FALSE
+    );
+
+    CREATE TABLE person_direct_video_signals (
+      id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      person_id BIGINT NOT NULL,
+      signal_id BIGINT NOT NULL,
+      matched_alias TEXT NOT NULL,
+      direct_mention_field TEXT NOT NULL,
+      evidence JSONB NOT NULL DEFAULT '{}'::jsonb,
+      computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT person_direct_video_signals_unique
+        UNIQUE (person_id, signal_id)
+    );
+  `);
+
+  async function insertPerson(slug, canonicalName, aliases = []) {
+    const result = await pool.query(
+      `INSERT INTO people (slug, canonical_name, aliases)
+       VALUES ($1, $2, $3::jsonb) RETURNING id`,
+      [slug, canonicalName, JSON.stringify(aliases)]
+    );
+    return result.rows[0].id;
+  }
+
+  async function insertVehicle(code, name, manufacturer) {
+    const result = await pool.query(
+      `INSERT INTO vehicles (code, name, manufacturer)
+       VALUES ($1, $2, $3) RETURNING id`,
+      [code, name, manufacturer]
+    );
+    return result.rows[0].id;
+  }
+
+  async function insertLink({
+    personId,
+    vehicleId = null,
+    vehicleBrand = null,
+    vehicleSeries = null,
+    vehicleModel = null,
+    relationType = "OTHER"
+  }) {
+    await pool.query(
+      `INSERT INTO vehicle_person_links
+        (person_id, vehicle_id, vehicle_brand, vehicle_series,
+         vehicle_model, relation_type)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        personId,
+        vehicleId,
+        vehicleBrand,
+        vehicleSeries,
+        vehicleModel,
+        relationType
+      ]
+    );
+  }
+
+  let externalIdCounter = 0;
+
+  async function insertSignal({
+    resolvedVehicleId = null,
+    vehicleBrand = null,
+    vehicleSeries = null,
+    vehicleModel = null,
+    resolutionStatus = "UNRESOLVED",
+    views,
+    title,
+    publishedAt
+  }) {
+    externalIdCounter += 1;
+
+    const result = await pool.query(
+      `INSERT INTO signals
+        (external_id, resolved_vehicle_id, vehicle_brand, vehicle_series,
+         vehicle_model, entity_resolution_status, views, title, url,
+         channel_title, published_at, is_short)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $8, $10, TRUE)
+       RETURNING id`,
+      [
+        `ext-${externalIdCounter}`,
+        resolvedVehicleId,
+        vehicleBrand,
+        vehicleSeries,
+        vehicleModel,
+        resolutionStatus,
+        views,
+        title,
+        `https://y/${externalIdCounter}`,
+        publishedAt
+      ]
+    );
+
+    return result.rows[0].id;
+  }
+
+  const now = new Date();
+
+  const gtr = await insertVehicle("NISSANGTR", "GT-R", "Nissan");
+  const rs3 = await insertVehicle("AUDIRS3", "RS3", "Audi");
+
+  // Driver A: EXACT association + a separate, lower-viewed
+  // direct-mention video -- COMPLETE, not shared.
+  const driverA = await insertPerson(
+    "max-driver",
+    "Max Driver",
+    ["Maxy"]
+  );
+  await insertLink({
+    personId: driverA,
+    vehicleId: gtr,
+    relationType: "RACING_DRIVER"
+  });
+
+  const driverATopAssoc = await insertSignal({
+    resolvedVehicleId: gtr,
+    vehicleBrand: "Nissan",
+    vehicleModel: "GT-R",
+    resolutionStatus: "RESOLVED",
+    views: 800000,
+    title: "GTR Nurburgring Lap",
+    publishedAt: now
+  });
+  await insertSignal({
+    resolvedVehicleId: gtr,
+    vehicleBrand: "Nissan",
+    vehicleModel: "GT-R",
+    resolutionStatus: "RESOLVED",
+    views: 100000,
+    title: "GTR Track Day",
+    publishedAt: now
+  });
+
+  const driverADirect = await insertSignal({
+    resolvedVehicleId: null,
+    resolutionStatus: "UNRESOLVED",
+    views: 50000,
+    title: "Max Driver Onboard Lap",
+    publishedAt: now
+  });
+
+  // Driver B: BRAND_ASSOCIATION only, no direct mention video
+  // anywhere -- ASSOCIATION_ONLY.
+  const driverB = await insertPerson("ella-racer", "Ella Racer");
+  await insertLink({
+    personId: driverB,
+    vehicleBrand: "Ford",
+    relationType: "DRIVER"
+  });
+  const driverBAssoc = await insertSignal({
+    vehicleBrand: "Ford",
+    resolutionStatus: "BRAND_ONLY",
+    views: 200000,
+    title: "Ford Mustang Drift Show",
+    publishedAt: now
+  });
+
+  // Driver C: direct mention only, no vehicle_person_links at
+  // all -- DIRECT_ONLY.
+  const driverC = await insertPerson(
+    "sam-hooker",
+    "Sam Hooker",
+    ["Hook"]
+  );
+  const driverCDirect = await insertSignal({
+    resolutionStatus: "UNRESOLVED",
+    views: 300000,
+    title: "Sam Hooker Sends It",
+    publishedAt: now
+  });
+
+  // Driver D: nothing matches at all -- NO_MATCH.
+  const driverD = await insertPerson(
+    "nora-nomatch",
+    "Nora NoMatch"
+  );
+
+  // Driver E: the SAME video serves as both the association
+  // video (EXACT vehicle match) and the direct-mention video
+  // (title contains the alias) -- COMPLETE + shared_signal.
+  const driverE = await insertPerson(
+    "vic-shared",
+    "Vic Shared",
+    ["Vic"]
+  );
+  await insertLink({
+    personId: driverE,
+    vehicleId: rs3,
+    relationType: "DRIVER"
+  });
+  const driverESharedSignal = await insertSignal({
+    resolvedVehicleId: rs3,
+    vehicleBrand: "Audi",
+    vehicleModel: "RS3",
+    resolutionStatus: "RESOLVED",
+    views: 900000,
+    title: "Vic Shared Drives the New RS3",
+    publishedAt: now
+  });
+
+  // Driver F: MODEL_ASSOCIATION tier -- link has no vehicle_id,
+  // only brand + model.
+  const driverF = await insertPerson(
+    "model-match-driver",
+    "Model Match Driver"
+  );
+  await insertLink({
+    personId: driverF,
+    vehicleBrand: "Audi",
+    vehicleModel: "RS3",
+    relationType: "OTHER"
+  });
+  const driverFModelAssoc = await insertSignal({
+    vehicleBrand: "Audi",
+    vehicleModel: "RS3",
+    resolutionStatus: "RESOLVED",
+    views: 700000,
+    title: "Audi RS3 Track Review",
+    publishedAt: now
+  });
+
+  // Driver G: SERIES_ASSOCIATION tier -- link has brand +
+  // series but no specific model.
+  const driverG = await insertPerson(
+    "series-match-driver",
+    "Series Match Driver"
+  );
+  await insertLink({
+    personId: driverG,
+    vehicleBrand: "Porsche",
+    vehicleSeries: "911",
+    relationType: "OTHER"
+  });
+  const driverGSeriesAssoc = await insertSignal({
+    vehicleBrand: "Porsche",
+    vehicleSeries: "911",
+    vehicleModel: "911 Turbo",
+    resolutionStatus: "RESOLVED",
+    views: 250000,
+    title: "Porsche 911 Turbo Review",
+    publishedAt: now
+  });
+
+  return {
+    pool,
+    ids: {
+      driverA: String(driverA),
+      driverB: String(driverB),
+      driverC: String(driverC),
+      driverD: String(driverD),
+      driverE: String(driverE),
+      driverF: String(driverF),
+      driverG: String(driverG),
+      driverATopAssoc: String(driverATopAssoc),
+      driverADirect: String(driverADirect),
+      driverBAssoc: String(driverBAssoc),
+      driverCDirect: String(driverCDirect),
+      driverESharedSignal: String(driverESharedSignal),
+      driverFModelAssoc: String(driverFModelAssoc),
+      driverGSeriesAssoc: String(driverGSeriesAssoc)
+    }
+  };
+}
+
+async function runPersonDualVideoCorrectnessTests() {
+  const { pool, ids } =
+    await buildPersonDualVideoFixturePool();
+
+  const allResult = await listPersonDualVideoSignals(
+    pool,
+    new URLSearchParams({ status: "ALL" })
+  );
+
+  assert.equal(allResult.statusCode, 200);
+
+  const packs = allResult.payload.data;
+  const personIds = packs.map(pack => pack.person_id);
+
+  // 10: every person appears exactly once.
+  assert.equal(
+    new Set(personIds).size,
+    personIds.length,
+    "Each person must appear exactly once."
+  );
+
+  const packFor = id =>
+    packs.find(pack => pack.person_id === id);
+
+  const packA = packFor(ids.driverA);
+  const packB = packFor(ids.driverB);
+  const packC = packFor(ids.driverC);
+  const packD = packFor(ids.driverD);
+  const packE = packFor(ids.driverE);
+  const packF = packFor(ids.driverF);
+  const packG = packFor(ids.driverG);
+
+  // 1 + 6 + 7: association-only video preserved, single video,
+  // never a SUM of Driver A's two GT-R signals (800,000 +
+  // 100,000 = 900,000 must never appear).
+  assert.equal(packA.status, "COMPLETE");
+  assert.equal(
+    packA.person_association_video.signal_id,
+    ids.driverATopAssoc
+  );
+  assert.equal(
+    Number(packA.person_association_video.video_views),
+    800000
+  );
+  assert.notEqual(
+    Number(packA.person_association_video.video_views),
+    900000,
+    "Association video must never be a SUM of multiple videos."
+  );
+  assert.equal(
+    packA.person_association_video.association_level,
+    "EXACT"
+  );
+  assert.equal(
+    packA.person_association_video.association_only,
+    true
+  );
+
+  // 3: association-only video must not claim direct_mention
+  // unless the title genuinely contains the person's name.
+  assert.equal(
+    packA.person_association_video.direct_mention,
+    false,
+    "GTR Nurburgring Lap does not mention Max Driver -- direct_mention must be false."
+  );
+
+  // 2: direct mention video preserved, independent role.
+  assert.equal(
+    packA.person_direct_hook_video.signal_id,
+    ids.driverADirect
+  );
+  assert.equal(
+    packA.person_direct_hook_video.direct_mention,
+    true
+  );
+  assert.notEqual(
+    packA.person_association_video.signal_id,
+    packA.person_direct_hook_video.signal_id
+  );
+
+  // 5 + 8: brand association legal but tagged, ASSOCIATION_ONLY.
+  assert.equal(packB.status, "ASSOCIATION_ONLY");
+  assert.equal(
+    packB.person_association_video.signal_id,
+    ids.driverBAssoc
+  );
+  assert.equal(
+    packB.person_association_video.association_level,
+    "BRAND_ASSOCIATION"
+  );
+  assert.equal(packB.person_direct_hook_video, null);
+
+  // 8: DIRECT_ONLY -- no vehicle_person_links at all.
+  assert.equal(packC.status, "DIRECT_ONLY");
+  assert.equal(
+    packC.person_direct_hook_video.signal_id,
+    ids.driverCDirect
+  );
+  assert.equal(packC.person_association_video, null);
+
+  // 8: NO_MATCH.
+  assert.equal(packD.status, "NO_MATCH");
+  assert.equal(packD.person_association_video, null);
+  assert.equal(packD.person_direct_hook_video, null);
+
+  // 9: shared_signal -- the SAME video serves both roles.
+  assert.equal(packE.status, "COMPLETE");
+  assert.equal(packE.shared_signal, true);
+  assert.equal(
+    packE.person_association_video.signal_id,
+    ids.driverESharedSignal
+  );
+  assert.equal(
+    packE.person_direct_hook_video.signal_id,
+    ids.driverESharedSignal
+  );
+  assert.equal(
+    packE.person_association_video.direct_mention,
+    true,
+    "The shared video's association role must also report direct_mention = true."
+  );
+
+  // MODEL_ASSOCIATION and SERIES_ASSOCIATION tiers tagged
+  // correctly.
+  assert.equal(
+    packF.person_association_video.association_level,
+    "MODEL_ASSOCIATION"
+  );
+  assert.equal(
+    packG.person_association_video.association_level,
+    "SERIES_ASSOCIATION"
+  );
+
+  // Default list (status=COMPLETE) must only return Driver A
+  // and Driver E.
+  const completeOnly = await listPersonDualVideoSignals(
+    pool,
+    new URLSearchParams()
+  );
+
+  const completeIds = completeOnly.payload.data.map(
+    pack => pack.person_id
+  );
+
+  assert.deepEqual(
+    new Set(completeIds),
+    new Set([ids.driverA, ids.driverE])
+  );
+
+  // Detail endpoint.
+  const detailResult = await getPersonDualVideoSignal(
+    pool,
+    ids.driverA,
+    new URLSearchParams()
+  );
+
+  assert.equal(detailResult.statusCode, 200);
+  assert.equal(detailResult.payload.data.status, "COMPLETE");
+
+  const notFoundResult = await getPersonDualVideoSignal(
+    pool,
+    "999999",
+    new URLSearchParams()
+  );
+
+  assert.equal(notFoundResult.statusCode, 404);
+
+  console.log(
+    "PERSON DUAL VIDEO CORRECTNESS TESTS PASSED"
+  );
+}
+
+async function main() {
+  await run();
+  runPersonDualVideoQueryValidationTests();
+  await runPersonDualVideoCorrectnessTests();
+}
+
+main().catch(error => {
   console.error(error);
   process.exit(1);
 });
