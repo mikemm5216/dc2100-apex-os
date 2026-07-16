@@ -611,6 +611,8 @@ export type ScannerRunStatus =
   | "FAILED"
   | "CANCELLED";
 
+export type ScannerScanMode = "CURRENT" | "HISTORICAL";
+
 export type ScannerRun = {
   id: string;
   status: ScannerRunStatus;
@@ -620,6 +622,8 @@ export type ScannerRun = {
     max_results_per_source: number;
     max_age_days: 3 | 7 | 14 | 30;
     force_refresh_channels: boolean;
+    scan_mode?: ScannerScanMode;
+    max_pages_per_source?: number;
   };
 
   summary: {
@@ -629,6 +633,7 @@ export type ScannerRun = {
       message?: string;
     }>;
 
+    scan_mode?: ScannerScanMode;
     max_age_days?: number;
     max_results_per_source?: number;
 
@@ -647,6 +652,15 @@ export type ScannerRun = {
     entity_not_applicable_count?: number;
     country_resolved_count?: number;
     vehicle_record_linked_count?: number;
+
+    history_scope?: "ALL_TIME";
+    pages_scanned?: number;
+    videos_discovered?: number;
+    videos_processed?: number;
+    history_complete?: boolean;
+    truncated_sources?: string[];
+    oldest_video_published_at?: string | null;
+    newest_video_published_at?: string | null;
   };
 
   source_count: number;
@@ -675,6 +689,8 @@ export type QueueScannerRunInput = {
   max_results_per_source?: number;
   max_age_days?: 3 | 7 | 14 | 30;
   force_refresh_channels?: boolean;
+  scan_mode?: ScannerScanMode;
+  max_pages_per_source?: number;
 };
 
 export async function fetchSignals(
@@ -1877,6 +1893,185 @@ export async function fetchScannerRun(
         signal,
       }
     );
+
+  return response.data;
+}
+
+// =========================================================
+// VEHICLE HISTORICAL TOP 10
+// =========================================================
+
+export type VehicleHistoryScope =
+  | "ONE_YEAR"
+  | "TEN_YEARS"
+  | "ALL_TIME";
+
+export type VehicleHistoricalFormat = "SHORTS" | "ALL";
+
+export type VehicleHistoricalScanSummary = {
+  history_complete: boolean;
+  pages_scanned: number | null;
+  truncated_sources: string[];
+  oldest_video_published_at: string | null;
+  newest_video_published_at: string | null;
+  scan_completed_at: string | null;
+};
+
+export type VehicleHistoricalEntityEvidence =
+  Record<string, unknown>;
+
+// Each row is ONE video -- the single highest-viewed eligible
+// video for its distinct resolved vehicle. Never a per-vehicle
+// SUM of views.
+export type VehicleHistoricalRecord = {
+  rank: number;
+
+  signal_id: string;
+  external_video_id: string | null;
+  video_title: string;
+  video_url: string;
+  thumbnail_url: string | null;
+  video_views: string;
+  published_at: string | null;
+  channel_title: string | null;
+
+  source_id: string | null;
+  source_name: string | null;
+
+  vehicle_id: string;
+  vehicle_code: string;
+  vehicle_name: string;
+  manufacturer: string | null;
+
+  // Reference only -- how many eligible videos this vehicle
+  // has in scope. Never used to rank the Top 10.
+  vehicle_signal_count: number;
+
+  entity_evidence: VehicleHistoricalEntityEvidence | null;
+  entity_match_method: string | null;
+
+  history_scope: VehicleHistoryScope;
+  format: VehicleHistoricalFormat;
+  history_complete: boolean;
+};
+
+export type VehicleHistoricalFilters = {
+  history_scope: VehicleHistoryScope;
+  format: VehicleHistoricalFormat;
+  limit: number;
+  offset: number;
+};
+
+export type VehicleHistoricalResponse = {
+  data: VehicleHistoricalRecord[];
+  count: number;
+  total_count: number;
+  history_scope: VehicleHistoryScope;
+  format: VehicleHistoricalFormat;
+  history_complete: boolean;
+  scan_summary: VehicleHistoricalScanSummary;
+  filters: VehicleHistoricalFilters;
+};
+
+export type FetchVehicleHistoricalRankingInput = {
+  history_scope?: VehicleHistoryScope;
+  format?: VehicleHistoricalFormat;
+  limit?: number;
+  offset?: number;
+};
+
+export type VehicleHistoricalTopVideo = {
+  signal_id: string;
+  external_video_id: string | null;
+  video_title: string;
+  video_url: string;
+  thumbnail_url: string | null;
+  video_views: string;
+  published_at: string | null;
+  is_short: boolean;
+  short_format: SignalShortFormat;
+  channel_title: string | null;
+  source_name: string | null;
+  entity_evidence: VehicleHistoricalEntityEvidence | null;
+  entity_match_method: string | null;
+};
+
+export type VehicleHistoricalDetail = {
+  vehicle_id: string;
+  vehicle_code: string;
+  vehicle_name: string;
+  manufacturer: string | null;
+  history_scope: VehicleHistoryScope;
+  format: VehicleHistoricalFormat;
+  history_complete: boolean;
+  vehicle_signal_count: number;
+  scan_summary: VehicleHistoricalScanSummary;
+  top_video: VehicleHistoricalTopVideo | null;
+};
+
+export async function fetchVehicleHistoricalRanking(
+  input: FetchVehicleHistoricalRankingInput = {},
+  signal?: AbortSignal
+): Promise<VehicleHistoricalResponse> {
+  const query = new URLSearchParams();
+
+  if (input.history_scope) {
+    query.set("history_scope", input.history_scope);
+  }
+
+  if (input.format) {
+    query.set("format", input.format);
+  }
+
+  if (input.limit !== undefined) {
+    query.set("limit", String(input.limit));
+  }
+
+  if (input.offset !== undefined) {
+    query.set("offset", String(input.offset));
+  }
+
+  const queryString = query.toString();
+
+  return requestJson<VehicleHistoricalResponse>(
+    `/vehicle-historical-ranking${
+      queryString ? `?${queryString}` : ""
+    }`,
+    {
+      method: "GET",
+      signal,
+    }
+  );
+}
+
+export async function fetchVehicleHistoricalDetail(
+  vehicleId: string,
+  input: FetchVehicleHistoricalRankingInput = {},
+  signal?: AbortSignal
+): Promise<VehicleHistoricalDetail> {
+  const query = new URLSearchParams();
+
+  if (input.history_scope) {
+    query.set("history_scope", input.history_scope);
+  }
+
+  if (input.format) {
+    query.set("format", input.format);
+  }
+
+  const queryString = query.toString();
+
+  const response = await requestJson<
+    DataResponse<VehicleHistoricalDetail>
+  >(
+    `/vehicle-historical-ranking/${encodeURIComponent(
+      vehicleId
+    )}${queryString ? `?${queryString}` : ""}`,
+    {
+      method: "GET",
+      signal,
+    }
+  );
 
   return response.data;
 }

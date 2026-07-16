@@ -6,7 +6,9 @@ const {
   createScannerRun,
   getScannerRun,
   getSignal,
-  listSignals
+  getVehicleHistoricalDetail,
+  listSignals,
+  listVehicleHistoricalRanking
 } = require("../../../lib/scanner/api");
 
 const {
@@ -1183,6 +1185,64 @@ function createRequestHandler(pool) {
         await getSignal(
           pool,
           signalMatch[1]
+        );
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(
+        res,
+        error
+      );
+    }
+  }
+
+  // =======================================================
+  // VEHICLE HISTORICAL TOP 10
+  // =======================================================
+
+  if (
+    req.method === "GET" &&
+    pathname === "/vehicle-historical-ranking"
+  ) {
+    try {
+      const result =
+        await listVehicleHistoricalRanking(
+          pool,
+          requestUrl.searchParams
+        );
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(
+        res,
+        error
+      );
+    }
+  }
+
+  const vehicleHistoricalDetailMatch =
+    pathname.match(
+      /^\/vehicle-historical-ranking\/([0-9]+)$/
+    );
+
+  if (
+    req.method === "GET" &&
+    vehicleHistoricalDetailMatch
+  ) {
+    try {
+      const result =
+        await getVehicleHistoricalDetail(
+          pool,
+          vehicleHistoricalDetailMatch[1],
+          requestUrl.searchParams
         );
 
       return sendJson(
