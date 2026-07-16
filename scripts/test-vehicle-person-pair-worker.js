@@ -12,7 +12,8 @@ const {
   dedupeAnchorsByBrand,
   compareUsablePairs,
   selectBestPairPerBrand,
-  selectTopDistinctBrandPairs,
+  selectDistinctPairOutcome,
+  selectTopDistinctBrandAndPersonPairs,
   scanBrandAnchorBatches,
   normalizePairRunPayload
 } = require("../lib/person/vehicle-person-pair-engine");
@@ -23,6 +24,12 @@ const {
   validateRunPayload,
   createVehiclePersonPairRun
 } = require("../lib/person/vehicle-person-pair-api");
+const {
+  F1_DRIVER_CATALOG
+} = require("../lib/person/person-catalog");
+const {
+  persistVerifiedF1CatalogLinks
+} = require("../lib/person/engine");
 
 function video(overrides = {}) {
   return {
@@ -118,6 +125,14 @@ const migrationSource = fs.readFileSync(
 assert.match(migrationSource, /life_status IN \('ALIVE','DECEASED','UNKNOWN'\)/);
 assert.match(migrationSource, /CREATE TABLE vehicle_person_pair_runs/);
 assert.match(migrationSource, /CREATE TABLE vehicle_person_pair_signals/);
+const f1MigrationSource = fs.readFileSync(
+  require.resolve("../db/migrations/019_f1_person_countries.sql"),
+  "utf8"
+);
+assert.match(f1MigrationSource, /\('MC', 'Monaco', TRUE\)/);
+assert.match(f1MigrationSource, /\('ES', 'Spain', TRUE\)/);
+assert.match(f1MigrationSource, /\('BR', 'Brazil', TRUE\)/);
+assert.match(f1MigrationSource, /superseded_by_run_id/);
 assert.equal(validateRunPayload({ history_scope: "ALL_TIME", format: "SHORTS", max_vehicles: 10 }), null);
 assert.equal(validateRunPayload({ history_scope: "RECENT" }).statusCode, 400);
 
@@ -205,7 +220,10 @@ async function runDistinctBrandTests() {
   });
   assert.equal(thirteen.batchesCompleted, 2);
   assert.equal(thirteen.usablePairs.length, 13);
-  const selectedTen = selectTopDistinctBrandPairs(thirteen.usablePairs, 10);
+  const selectedTen = selectTopDistinctBrandAndPersonPairs(
+    thirteen.usablePairs,
+    10
+  );
   assert.equal(selectedTen.length, 10);
   // 8. Selected pairs are ten distinct normalized brands.
   assert.equal(new Set(selectedTen.map(item => item.anchor.normalized_vehicle_brand)).size, 10);
@@ -219,7 +237,7 @@ async function runDistinctBrandTests() {
   assert.equal(brandBest[0].views, 2000);
 
   // 10. Global ranking follows joint views, not discovery order.
-  const ranked = selectTopDistinctBrandPairs([
+  const ranked = selectTopDistinctBrandAndPersonPairs([
     usablePair("Alpha", 1, 10),
     usablePair("Beta", 2, 1000),
     usablePair("Gamma", 3, 100)
@@ -235,7 +253,7 @@ async function runDistinctBrandTests() {
   assert.ok(compareUsablePairs(provenPair, fallbackPair, { global: true }) < 0);
 
   // 12. Insufficient usable brands never duplicate a brand to fill target.
-  const insufficient = selectTopDistinctBrandPairs([
+  const insufficient = selectTopDistinctBrandAndPersonPairs([
     usablePair("Ford", 1, 100),
     usablePair("Ford", 2, 90),
     usablePair("Honda", 3, 80)
@@ -281,11 +299,155 @@ async function runDistinctBrandTests() {
   const fusionSource = fs.readFileSync(require.resolve("../lib/fusion/engine"), "utf8");
   assert.match(fusionSource, /ps\.selected=TRUE/);
   assert.match(fusionSource, /PARTITION BY LOWER\(REGEXP_REPLACE/);
+  assert.match(fusionSource, /PARTITION BY ps\.person_id/);
+  assert.match(fusionSource, /PARTITION BY ps\.vehicle_id/);
   assert.match(fusionSource, /countryId:\s*pair\.person_country_id/);
   assert.match(fusionSource, /countryBinding:\s*selectedPair \? 'PERSON_COUNTRY'/);
 
-  // 16. Founder life-status regressions remain covered above.
-  console.log("VEHICLE-PERSON PAIR WORKER TESTS PASSED (29 existing + 16 distinct-brand cases)");
+  // Unique-person 1-4. Chris Harris ranks with Ferrari; Porsche falls
+  // through to its next eligible person instead of duplicating Chris.
+  const ferrariChris = usablePair("Ferrari", 32, 3_968_940, {
+    personId: 20
+  });
+  const porscheChris = usablePair("Porsche", 17, 839_043, {
+    personId: 20
+  });
+  const porscheAlternative = usablePair("Porsche", 17, 700_000, {
+    personId: 21
+  });
+  const resolvedConflict = selectDistinctPairOutcome([
+    porscheChris,
+    porscheAlternative,
+    ferrariChris
+  ], 10);
+  assert.deepEqual(
+    resolvedConflict.selected.map(item => item.link.person_id),
+    [20, 21]
+  );
+  assert.deepEqual(
+    resolvedConflict.selected.map(item => item.anchor.normalized_vehicle_brand),
+    ["ferrari", "porsche"]
+  );
+  assert.equal(resolvedConflict.personConflictsResolved, 1);
+  const noPorscheAlternative = selectTopDistinctBrandAndPersonPairs([
+    ferrariChris,
+    porscheChris
+  ], 10);
+  assert.equal(noPorscheAlternative.length, 1);
+  assert.equal(noPorscheAlternative[0], ferrariChris);
+
+  // Unique-person 5-6. Ten brands backed by nine people are not enough;
+  // a later batch must supply the tenth feasible brand/person pair.
+  const uniquenessScan = await scanBrandAnchorBatches({
+    anchors: Array.from({ length: 20 }, (_, index) =>
+      anchor(`Unique ${index + 1}`, index + 1, 1000 - index)
+    ),
+    batchSize: 10,
+    targetPairs: 10,
+    scanAnchor: async item => {
+      if (item.vehicle_id <= 10) {
+        return usablePair(item.vehicle_brand, item.vehicle_id, 2000 - item.vehicle_id, {
+          personId: Math.min(item.vehicle_id, 9)
+        });
+      }
+      return item.vehicle_id === 11
+        ? usablePair(item.vehicle_brand, item.vehicle_id, 500, { personId: 10 })
+        : null;
+    }
+  });
+  assert.equal(uniquenessScan.batchesCompleted, 2);
+  assert.equal(uniquenessScan.brandsScanned, 20);
+  const feasibleTen = selectTopDistinctBrandAndPersonPairs(
+    uniquenessScan.usablePairs,
+    10
+  );
+  assert.equal(feasibleTen.length, 10);
+
+  // Unique-person 7-8. A selected Top 10 is unique on all three axes,
+  // and no person can appear selected more than once.
+  assert.equal(new Set(feasibleTen.map(item => item.anchor.normalized_vehicle_brand)).size, 10);
+  assert.equal(new Set(feasibleTen.map(item => String(item.anchor.vehicle_id))).size, 10);
+  assert.equal(new Set(feasibleTen.map(item => String(item.link.person_id))).size, 10);
+  const selectedCountsByPerson = feasibleTen.reduce((counts, item) => {
+    const key = String(item.link.person_id);
+    counts.set(key, (counts.get(key) || 0) + 1);
+    return counts;
+  }, new Map());
+  assert.ok([...selectedCountsByPerson.values()].every(count => count <= 1));
+
+  // F1 9-10. A verified constructor link still needs one actual joint
+  // video; lack of a joint person+brand video remains a hard rejection.
+  const hamilton = F1_DRIVER_CATALOG.find(item => item.slug === "lewis-hamilton");
+  assert.equal(hamilton.roleCategory, "DRIVER_RACER");
+  assert.equal(hamilton.lifeStatus, "ALIVE");
+  assert.ok(hamilton.associations.some(item => item.brand === "Ferrari" && item.source));
+  const f1Joint = evaluateJointVideo(video({
+    title: "Lewis Hamilton drives Ferrari",
+    views: 5_000_000
+  }), {
+    personTerms: hamilton.aliases,
+    vehicleTerms: [{ term: "Ferrari", specificity: "SAME_BRAND" }],
+    format: "SHORTS"
+  });
+  assert.equal(f1Joint.pairSpecificity, "SAME_BRAND");
+  assert.equal(evaluateJointVideo(video({
+    title: "Lewis Hamilton interview"
+  }), {
+    personTerms: hamilton.aliases,
+    vehicleTerms: [{ term: "Ferrari", specificity: "SAME_BRAND" }],
+    format: "SHORTS"
+  }), null);
+
+  // F1 11. Engine suppliers never create road-car associations.
+  const gasly = F1_DRIVER_CATALOG.find(item => item.slug === "pierre-gasly");
+  assert.deepEqual(gasly.associations.map(item => item.brand), ["Alpine"]);
+  assert.ok(F1_DRIVER_CATALOG.every(person =>
+    person.associations.every(item => !["Ford", "Honda"].includes(item.brand))
+  ));
+  const f1LinkWrites = [];
+  await persistVerifiedF1CatalogLinks({
+    async query(sql, values) {
+      f1LinkWrites.push({ sql, values });
+      return { rows: [], rowCount: 1 };
+    }
+  }, new Map(F1_DRIVER_CATALOG.map((person, index) => [
+    person.slug,
+    { id: index + 1, active: true }
+  ])), { catalog: F1_DRIVER_CATALOG });
+  assert.equal(
+    f1LinkWrites.length,
+    F1_DRIVER_CATALOG.reduce(
+      (total, person) => total + person.associations.length,
+      0
+    )
+  );
+  assert.ok(f1LinkWrites.every(write =>
+    write.sql.includes("'CATALOG'") &&
+    JSON.parse(write.values[6]).relationship === "CONSTRUCTOR_OR_WORKS_TEAM"
+  ));
+
+  // F1 12. No role quota: actual joint views rank an F1 driver and a
+  // creator by the exact same comparator.
+  const f1Pair = usablePair("Ferrari", 32, 100, {
+    personId: 40,
+    link: { person_id: 40, f1_driver: true }
+  });
+  const creatorPair = usablePair("Porsche", 17, 200, {
+    personId: 41,
+    link: { person_id: 41, f1_driver: false }
+  });
+  assert.deepEqual(
+    selectTopDistinctBrandAndPersonPairs([f1Pair, creatorPair], 2),
+    [creatorPair, f1Pair]
+  );
+
+  // 13-15. Founder and person-country regressions remain covered above;
+  // Fusion additionally partitions selected input by person and vehicle.
+  assert.equal(fallback("Tesla"), true);
+  assert.match(fusionSource, /countryId:\s*pair\.person_country_id/);
+  assert.match(fusionSource, /person_rn=1/);
+
+  console.log("VEHICLE-PERSON PAIR WORKER TESTS PASSED (29 existing + 16 distinct-brand + 15 unique-person/F1 cases)");
 }
 
 runDistinctBrandTests().catch(error => {
