@@ -15,6 +15,8 @@ import {
   queueScannerRun,
 } from "@/lib/api";
 
+import { VehicleHistoricalTop10 } from "@/components/vehicle-historical-top10";
+
 import type {
   ScannerRun,
   SignalDurationBucket,
@@ -642,6 +644,8 @@ export function SignalsDashboard() {
           ))}
         </div>
       </section>
+
+      <VehicleHistoricalTop10 />
 
       <section className="rounded-xl border border-neutral-800 bg-neutral-950">
         <div className="flex flex-wrap gap-2 border-b border-neutral-800 p-4">

@@ -611,6 +611,8 @@ export type ScannerRunStatus =
   | "FAILED"
   | "CANCELLED";
 
+export type ScannerScanMode = "CURRENT" | "HISTORICAL";
+
 export type ScannerRun = {
   id: string;
   status: ScannerRunStatus;
@@ -620,6 +622,8 @@ export type ScannerRun = {
     max_results_per_source: number;
     max_age_days: 3 | 7 | 14 | 30;
     force_refresh_channels: boolean;
+    scan_mode?: ScannerScanMode;
+    max_pages_per_source?: number;
   };
 
   summary: {
@@ -629,6 +633,7 @@ export type ScannerRun = {
       message?: string;
     }>;
 
+    scan_mode?: ScannerScanMode;
     max_age_days?: number;
     max_results_per_source?: number;
 
@@ -647,6 +652,15 @@ export type ScannerRun = {
     entity_not_applicable_count?: number;
     country_resolved_count?: number;
     vehicle_record_linked_count?: number;
+
+    history_scope?: "ALL_TIME";
+    pages_scanned?: number;
+    videos_discovered?: number;
+    videos_processed?: number;
+    history_complete?: boolean;
+    truncated_sources?: string[];
+    oldest_video_published_at?: string | null;
+    newest_video_published_at?: string | null;
   };
 
   source_count: number;
@@ -675,6 +689,8 @@ export type QueueScannerRunInput = {
   max_results_per_source?: number;
   max_age_days?: 3 | 7 | 14 | 30;
   force_refresh_channels?: boolean;
+  scan_mode?: ScannerScanMode;
+  max_pages_per_source?: number;
 };
 
 export async function fetchSignals(
@@ -1877,6 +1893,181 @@ export async function fetchScannerRun(
         signal,
       }
     );
+
+  return response.data;
+}
+
+// =========================================================
+// VEHICLE HISTORICAL TOP 10
+// =========================================================
+
+export type VehicleHistoryScope =
+  | "ONE_YEAR"
+  | "TEN_YEARS"
+  | "ALL_TIME";
+
+export type VehicleHistoricalFormat = "SHORTS" | "ALL";
+
+export type VehicleHistoricalSort =
+  | "historical_views"
+  | "max_video_views"
+  | "signal_count";
+
+export type VehicleHistoricalScanSummary = {
+  history_complete: boolean;
+  pages_scanned: number | null;
+  truncated_sources: string[];
+  oldest_video_published_at: string | null;
+  newest_video_published_at: string | null;
+  scan_completed_at: string | null;
+};
+
+export type VehicleHistoricalRecord = {
+  rank: number;
+  vehicle_id: string;
+  vehicle_code: string;
+  vehicle_name: string;
+  manufacturer: string | null;
+
+  historical_views_total: string;
+  max_video_views: string;
+  signal_count: number;
+  source_count: number;
+
+  earliest_published_at: string | null;
+  latest_published_at: string | null;
+
+  history_scope: VehicleHistoryScope;
+  format: VehicleHistoricalFormat;
+  history_complete: boolean;
+
+  representative_signal_id: string;
+  representative_video_title: string;
+  representative_video_url: string;
+  representative_video_views: string;
+};
+
+export type VehicleHistoricalFilters = {
+  history_scope: VehicleHistoryScope;
+  format: VehicleHistoricalFormat;
+  sort: VehicleHistoricalSort;
+  limit: number;
+  offset: number;
+};
+
+export type VehicleHistoricalResponse = {
+  data: VehicleHistoricalRecord[];
+  count: number;
+  total_count: number;
+  history_scope: VehicleHistoryScope;
+  format: VehicleHistoricalFormat;
+  history_complete: boolean;
+  scan_summary: VehicleHistoricalScanSummary;
+  filters: VehicleHistoricalFilters;
+};
+
+export type FetchVehicleHistoricalRankingInput = {
+  history_scope?: VehicleHistoryScope;
+  format?: VehicleHistoricalFormat;
+  sort?: VehicleHistoricalSort;
+  limit?: number;
+  offset?: number;
+};
+
+export type VehicleHistoricalEvidenceItem = {
+  signal_id: string;
+  title: string;
+  url: string;
+  views: string;
+  published_at: string | null;
+  is_short: boolean;
+  short_format: SignalShortFormat;
+  channel_title: string | null;
+  source_name: string | null;
+};
+
+export type VehicleHistoricalDetail = {
+  vehicle_id: string;
+  vehicle_code: string;
+  vehicle_name: string;
+  manufacturer: string | null;
+  history_scope: VehicleHistoryScope;
+  format: VehicleHistoricalFormat;
+  history_complete: boolean;
+  signal_count: number;
+  historical_views_total: number;
+  max_video_views: number;
+  scan_summary: VehicleHistoricalScanSummary;
+  evidence: VehicleHistoricalEvidenceItem[];
+};
+
+export async function fetchVehicleHistoricalRanking(
+  input: FetchVehicleHistoricalRankingInput = {},
+  signal?: AbortSignal
+): Promise<VehicleHistoricalResponse> {
+  const query = new URLSearchParams();
+
+  if (input.history_scope) {
+    query.set("history_scope", input.history_scope);
+  }
+
+  if (input.format) {
+    query.set("format", input.format);
+  }
+
+  if (input.sort) {
+    query.set("sort", input.sort);
+  }
+
+  if (input.limit !== undefined) {
+    query.set("limit", String(input.limit));
+  }
+
+  if (input.offset !== undefined) {
+    query.set("offset", String(input.offset));
+  }
+
+  const queryString = query.toString();
+
+  return requestJson<VehicleHistoricalResponse>(
+    `/vehicle-historical-ranking${
+      queryString ? `?${queryString}` : ""
+    }`,
+    {
+      method: "GET",
+      signal,
+    }
+  );
+}
+
+export async function fetchVehicleHistoricalDetail(
+  vehicleId: string,
+  input: FetchVehicleHistoricalRankingInput = {},
+  signal?: AbortSignal
+): Promise<VehicleHistoricalDetail> {
+  const query = new URLSearchParams();
+
+  if (input.history_scope) {
+    query.set("history_scope", input.history_scope);
+  }
+
+  if (input.format) {
+    query.set("format", input.format);
+  }
+
+  const queryString = query.toString();
+
+  const response = await requestJson<
+    DataResponse<VehicleHistoricalDetail>
+  >(
+    `/vehicle-historical-ranking/${encodeURIComponent(
+      vehicleId
+    )}${queryString ? `?${queryString}` : ""}`,
+    {
+      method: "GET",
+      signal,
+    }
+  );
 
   return response.data;
 }
