@@ -14,6 +14,8 @@ import {
   queuePersonRadarRun,
 } from "@/lib/api";
 
+import { PersonDualVideoSignals } from "@/components/person-dual-video-signals";
+
 import type {
   PersonAttentionArchetype,
   PersonHistoricalResonanceTier,
@@ -1714,6 +1716,8 @@ export function PersonRadarDashboard() {
           traffic or a 10-year view count.
         </div>
       </section>
+
+      <PersonDualVideoSignals />
     </div>
   );
 }

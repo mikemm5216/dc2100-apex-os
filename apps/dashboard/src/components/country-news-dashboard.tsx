@@ -14,6 +14,8 @@ import {
   queueCountryNewsRun,
 } from "@/lib/api";
 
+import { CountryDualVideoSignals } from "@/components/country-dual-video-signals";
+
 import type {
   CountryNewsCategory,
   CountryNewsConflictArchetype,
@@ -1124,6 +1126,8 @@ export function CountryNewsDashboard() {
           </div>
         )}
       </section>
+
+      <CountryDualVideoSignals />
     </div>
   );
 }
