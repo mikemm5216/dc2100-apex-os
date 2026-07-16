@@ -14,7 +14,6 @@ import type {
   VehicleHistoricalDetail,
   VehicleHistoricalFormat,
   VehicleHistoricalResponse,
-  VehicleHistoricalSort,
   VehicleHistoryScope,
 } from "@/lib/api";
 
@@ -35,21 +34,6 @@ const formatOptions: Array<{
 }> = [
   { value: "SHORTS", label: "Shorts" },
   { value: "ALL", label: "All Videos" },
-];
-
-const sortOptions: Array<{
-  value: VehicleHistoricalSort;
-  label: string;
-}> = [
-  {
-    value: "historical_views",
-    label: "Total Historical Views",
-  },
-  {
-    value: "max_video_views",
-    label: "Highest Single Video",
-  },
-  { value: "signal_count", label: "Signal Count" },
 ];
 
 function numeric(value: string | number | null | undefined) {
@@ -87,9 +71,6 @@ export function VehicleHistoricalTop10() {
   const [format, setFormat] =
     useState<VehicleHistoricalFormat>("SHORTS");
 
-  const [sort, setSort] =
-    useState<VehicleHistoricalSort>("historical_views");
-
   const [response, setResponse] =
     useState<VehicleHistoricalResponse | null>(null);
 
@@ -123,7 +104,6 @@ export function VehicleHistoricalTop10() {
           {
             history_scope: scope,
             format,
-            sort,
             limit: 10,
             offset: 0,
           },
@@ -154,7 +134,7 @@ export function VehicleHistoricalTop10() {
     load();
 
     return () => controller.abort();
-  }, [scope, format, sort, reloadKey]);
+  }, [scope, format, reloadKey]);
 
   const runId = historicalRun?.id;
   const runStatus = historicalRun?.status;
@@ -241,22 +221,23 @@ export function VehicleHistoricalTop10() {
 
   const rows = response?.data ?? [];
   const historyComplete = response?.history_complete ?? false;
+  const topVideo = detail?.top_video ?? null;
 
   return (
     <section className="rounded-xl border border-neutral-800 bg-neutral-950">
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-800 bg-gradient-to-r from-sky-950/30 to-neutral-950 px-5 py-5">
         <div>
           <p className="text-xs font-medium uppercase tracking-[0.25em] text-sky-500">
-            Vehicle Historical Top 10
+            Vehicle Historical Top 10 Videos
           </p>
 
           <h2 className="mt-2 text-2xl font-semibold text-white">
-            Distinct Vehicle · Actual Historical Views
+            Vehicle Historical Top 10 Videos
           </h2>
 
           <p className="mt-1 text-sm text-neutral-400">
-            Ranked by SUM of actual views across every resolved
-            upload, not growth velocity or fusion score.
+            Highest-viewed individual historical video for each
+            distinct resolved vehicle.
           </p>
         </div>
 
@@ -404,28 +385,6 @@ export function VehicleHistoricalTop10() {
           </select>
         </label>
 
-        <label className="space-y-1">
-          <span className="block text-[11px] uppercase tracking-wider text-neutral-500">
-            Sort
-          </span>
-          <select
-            value={sort}
-            onChange={(event) =>
-              setSort(
-                event.target
-                  .value as VehicleHistoricalSort
-              )
-            }
-            className="rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white"
-          >
-            {sortOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
         <button
           type="button"
           onClick={() => setReloadKey((value) => value + 1)}
@@ -462,22 +421,13 @@ export function VehicleHistoricalTop10() {
               <tr className="border-b border-neutral-800 text-[11px] uppercase tracking-wider text-neutral-500">
                 <th className="px-4 py-3">Rank</th>
                 <th className="px-4 py-3">Vehicle</th>
-                <th className="px-4 py-3">Manufacturer</th>
+                <th className="px-4 py-3">Video Title</th>
                 <th className="px-4 py-3 text-right">
-                  Total Views
+                  Single Video Views
                 </th>
-                <th className="px-4 py-3 text-right">
-                  Highest Video
-                </th>
-                <th className="px-4 py-3 text-right">
-                  Signals
-                </th>
-                <th className="px-4 py-3 text-right">
-                  Sources
-                </th>
-                <th className="px-4 py-3">
-                  Representative Video
-                </th>
+                <th className="px-4 py-3">Channel</th>
+                <th className="px-4 py-3">Published Date</th>
+                <th className="px-4 py-3">Source</th>
                 <th className="px-4 py-3">History</th>
               </tr>
             </thead>
@@ -499,28 +449,14 @@ export function VehicleHistoricalTop10() {
                       </p>
                       <p className="text-xs text-neutral-500">
                         {row.vehicle_code}
+                        {row.manufacturer
+                          ? ` · ${row.manufacturer}`
+                          : ""}
                       </p>
-                    </td>
-                    <td className="px-4 py-3 text-neutral-300">
-                      {row.manufacturer ?? "—"}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-sky-300">
-                      {compactNumber(
-                        row.historical_views_total
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-neutral-200">
-                      {compactNumber(row.max_video_views)}
-                    </td>
-                    <td className="px-4 py-3 text-right text-neutral-300">
-                      {row.signal_count}
-                    </td>
-                    <td className="px-4 py-3 text-right text-neutral-300">
-                      {row.source_count}
                     </td>
                     <td className="max-w-xs px-4 py-3">
                       <a
-                        href={row.representative_video_url}
+                        href={row.video_url}
                         target="_blank"
                         rel="noreferrer"
                         onClick={(event) =>
@@ -528,7 +464,29 @@ export function VehicleHistoricalTop10() {
                         }
                         className="line-clamp-2 text-xs text-sky-400 hover:text-sky-300"
                       >
-                        {row.representative_video_title}
+                        {row.video_title}
+                      </a>
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-sky-300">
+                      {compactNumber(row.video_views)}
+                    </td>
+                    <td className="px-4 py-3 text-neutral-300">
+                      {row.channel_title ?? "—"}
+                    </td>
+                    <td className="px-4 py-3 text-neutral-300">
+                      {formatDate(row.published_at)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <a
+                        href={row.video_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(event) =>
+                          event.stopPropagation()
+                        }
+                        className="text-xs text-sky-400 hover:text-sky-300"
+                      >
+                        {row.source_name ?? "Source"}
                       </a>
                     </td>
                     <td className="px-4 py-3">
@@ -549,51 +507,62 @@ export function VehicleHistoricalTop10() {
                   {expandedVehicleId === row.vehicle_id && (
                     <tr>
                       <td
-                        colSpan={9}
+                        colSpan={8}
                         className="border-t border-neutral-900 bg-neutral-900/40 px-4 py-4"
                       >
                         {isDetailLoading ? (
                           <p className="text-xs text-neutral-500">
                             Loading evidence...
                           </p>
-                        ) : detail ? (
-                          <div className="space-y-2">
-                            <p className="text-[11px] uppercase tracking-wider text-neutral-500">
-                              Evidence · {detail.signal_count}{" "}
-                              signals
-                            </p>
-                            <div className="divide-y divide-neutral-800">
-                              {detail.evidence.map((item) => (
-                                <div
-                                  key={item.signal_id}
-                                  className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs"
-                                >
-                                  <a
-                                    href={item.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="max-w-md truncate text-sky-400 hover:text-sky-300"
-                                  >
-                                    {item.title}
-                                  </a>
-                                  <span className="text-neutral-500">
-                                    {item.source_name ??
-                                      item.channel_title ??
-                                      "Unknown source"}
-                                  </span>
-                                  <span className="text-neutral-500">
-                                    {formatDate(
-                                      item.published_at
-                                    )}
-                                  </span>
-                                  <span className="font-mono text-neutral-200">
-                                    {compactNumber(
-                                      item.views
-                                    )}{" "}
-                                    views
-                                  </span>
-                                </div>
-                              ))}
+                        ) : topVideo ? (
+                          <div className="flex flex-wrap gap-4">
+                            {topVideo.thumbnail_url && (
+                              <img
+                                src={topVideo.thumbnail_url}
+                                alt={topVideo.video_title}
+                                className="h-24 w-40 rounded-lg border border-neutral-800 object-cover"
+                              />
+                            )}
+
+                            <div className="min-w-0 flex-1 space-y-1 text-xs">
+                              <a
+                                href={topVideo.video_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-sm font-semibold text-sky-400 hover:text-sky-300"
+                              >
+                                {topVideo.video_title}
+                              </a>
+                              <p className="text-neutral-500">
+                                {topVideo.video_url}
+                              </p>
+                              <p className="text-neutral-400">
+                                {compactNumber(
+                                  topVideo.video_views
+                                )}{" "}
+                                views ·{" "}
+                                {formatDate(
+                                  topVideo.published_at
+                                )}{" "}
+                                ·{" "}
+                                {topVideo.source_name ??
+                                  topVideo.channel_title ??
+                                  "Unknown source"}
+                              </p>
+                              <p className="text-neutral-500">
+                                Match method:{" "}
+                                {topVideo.entity_match_method ??
+                                  "—"}
+                              </p>
+                              {topVideo.entity_evidence && (
+                                <pre className="mt-2 max-h-40 overflow-auto rounded-lg border border-neutral-800 bg-neutral-950 p-2 text-[10px] text-neutral-400">
+                                  {JSON.stringify(
+                                    topVideo.entity_evidence,
+                                    null,
+                                    2
+                                  )}
+                                </pre>
+                              )}
                             </div>
                           </div>
                         ) : (

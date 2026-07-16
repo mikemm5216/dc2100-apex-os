@@ -4,7 +4,6 @@ const assert =
 const { newDb } = require("pg-mem");
 
 const {
-  HISTORICAL_SORTS,
   SIGNAL_SORTS,
   getVehicleHistoricalDetail,
   listSignals,
@@ -715,9 +714,14 @@ function runHistoricalQueryValidationTests() {
 
   assert.equal(defaults.value.historyScope, "ALL_TIME");
   assert.equal(defaults.value.format, "SHORTS");
-  assert.equal(defaults.value.sort, "historical_views");
   assert.equal(defaults.value.limit, 10);
   assert.equal(defaults.value.offset, 0);
+
+  // The old SUM-based sort parameter is gone entirely --
+  // ranking is a single, fixed metric now (the vehicle's own
+  // highest-viewed video), so there is nothing left to select
+  // between.
+  assert.equal(defaults.value.sort, undefined);
 
   const invalidScope = parseVehicleHistoricalRankingQuery(
     new URLSearchParams({ history_scope: "FIVE_YEARS" })
@@ -729,21 +733,10 @@ function runHistoricalQueryValidationTests() {
   );
   assert.equal(invalidFormat.error.statusCode, 400);
 
-  const invalidSort = parseVehicleHistoricalRankingQuery(
-    new URLSearchParams({ sort: "fusion_score" })
-  );
-  assert.equal(invalidSort.error.statusCode, 400);
-
   const invalidLimit = parseVehicleHistoricalRankingQuery(
     new URLSearchParams({ limit: "101" })
   );
   assert.equal(invalidLimit.error.statusCode, 400);
-
-  // Ranking must never be driven by fusion_score or rank_score.
-  for (const sortSql of Object.values(HISTORICAL_SORTS)) {
-    assert.ok(!sortSql.includes("fusion_score"));
-    assert.ok(!sortSql.includes("rank_score"));
-  }
 
   console.log(
     "VEHICLE HISTORICAL RANKING QUERY VALIDATION TESTS PASSED"
@@ -751,8 +744,8 @@ function runHistoricalQueryValidationTests() {
 }
 
 // ---------------------------------------------------------
-// Vehicle Historical Top 10: aggregation correctness
-// (pg-mem, real GROUP BY / SUM / MAX / DISTINCT ON execution)
+// Vehicle Historical Top 10: single-video-per-vehicle
+// correctness (pg-mem, real DISTINCT ON / GROUP BY execution)
 // ---------------------------------------------------------
 
 async function buildHistoricalFixturePool() {
@@ -775,15 +768,19 @@ async function buildHistoricalFixturePool() {
 
     CREATE TABLE signals (
       id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      external_id TEXT,
       resolved_vehicle_id BIGINT,
       source_id BIGINT,
       views BIGINT NOT NULL DEFAULT 0,
       title TEXT,
       url TEXT,
+      thumbnail_url TEXT,
       channel_title TEXT,
       short_format TEXT,
       published_at TIMESTAMPTZ,
       entity_resolution_status TEXT NOT NULL DEFAULT 'UNRESOLVED',
+      entity_evidence JSONB,
+      entity_match_method TEXT,
       is_short BOOLEAN NOT NULL DEFAULT FALSE
     );
 
@@ -813,6 +810,8 @@ async function buildHistoricalFixturePool() {
     return result.rows[0].id;
   }
 
+  let externalIdCounter = 0;
+
   async function insertSignal({
     vehicleId,
     sourceId,
@@ -821,15 +820,21 @@ async function buildHistoricalFixturePool() {
     url,
     publishedAt,
     resolutionStatus = "RESOLVED",
-    isShort = true
+    isShort = true,
+    entityEvidence = null,
+    entityMatchMethod = null
   }) {
+    externalIdCounter += 1;
+
     await pool.query(
       `INSERT INTO signals
-        (resolved_vehicle_id, source_id, views, title, url,
-         channel_title, short_format, published_at,
-         entity_resolution_status, is_short)
-       VALUES ($1, $2, $3, $4, $5, $4, 'CLASSIC_SHORT', $6, $7, $8)`,
+        (external_id, resolved_vehicle_id, source_id, views,
+         title, url, channel_title, short_format, published_at,
+         entity_resolution_status, entity_evidence,
+         entity_match_method, is_short)
+       VALUES ($1, $2, $3, $4, $5, $6, $5, 'CLASSIC_SHORT', $7, $8, $9::jsonb, $10, $11)`,
       [
+        `ext-${externalIdCounter}`,
         vehicleId,
         sourceId,
         views,
@@ -837,6 +842,10 @@ async function buildHistoricalFixturePool() {
         url,
         publishedAt,
         resolutionStatus,
+        entityEvidence
+          ? JSON.stringify(entityEvidence)
+          : null,
+        entityMatchMethod,
         isShort
       ]
     );
@@ -851,129 +860,148 @@ async function buildHistoricalFixturePool() {
   const fifteenYearsAgo = new Date(now);
   fifteenYearsAgo.setFullYear(now.getFullYear() - 15);
 
-  const v1 = await insertVehicle(
-    "GT3RS",
-    "911 GT3 RS",
-    "Porsche"
+  const vehicleA = await insertVehicle(
+    "AAA",
+    "Vehicle A",
+    "Brand A"
   );
-  const v2 = await insertVehicle(
-    "M4COMP",
-    "M4 Competition",
-    "BMW"
+  const vehicleD = await insertVehicle(
+    "DDD",
+    "Vehicle D",
+    "Brand D"
   );
-  const v3 = await insertVehicle(
-    "SUPRA",
-    "GR Supra",
-    "Toyota"
+  const vehicleLong = await insertVehicle(
+    "LNG",
+    "Vehicle Long",
+    "Brand Long"
   );
-  const v4 = await insertVehicle("RS3", "RS3", "Audi");
-  const v5 = await insertVehicle("CIVIC", "Civic Type R", "Honda");
-  const v6 = await insertVehicle("CLASSIC", "Classic Icon", "Jaguar");
+  const vehicleScope = await insertVehicle(
+    "SCP",
+    "Vehicle Scope",
+    "Brand Scope"
+  );
+  const vehicleClassic = await insertVehicle(
+    "CLS",
+    "Vehicle Classic",
+    "Brand Classic"
+  );
+  const vehicleGhost = await insertVehicle(
+    "GHOST",
+    "Vehicle Ghost",
+    "Brand Ghost"
+  );
 
-  // V1: two Shorts across two sources -- sum 160,000 / max 110,000.
+  // Vehicle A: three Shorts (A=10M, B=5M, C=3M). The ranking
+  // must use ONLY Video A's 10,000,000 -- never 18,000,000.
   await insertSignal({
-    vehicleId: v1,
+    vehicleId: vehicleA,
     sourceId: sourceA,
-    views: 110000,
-    title: "GT3 RS Launch Control",
-    url: "https://y/v1",
+    views: 10000000,
+    title: "Video A",
+    url: "https://y/video-a",
+    publishedAt: now,
+    entityEvidence: { matched_terms: ["Vehicle A"] },
+    entityMatchMethod: "MODEL_ALIAS"
+  });
+  await insertSignal({
+    vehicleId: vehicleA,
+    sourceId: sourceA,
+    views: 5000000,
+    title: "Video B",
+    url: "https://y/video-b",
     publishedAt: now
   });
   await insertSignal({
-    vehicleId: v1,
+    vehicleId: vehicleA,
     sourceId: sourceB,
-    views: 50000,
-    title: "GT3 RS Drift",
-    url: "https://y/v2",
+    views: 3000000,
+    title: "Video C",
+    url: "https://y/video-c",
     publishedAt: now
   });
-  // Long-form video for V1 -- excluded under format=SHORTS,
-  // and large enough to flip the #1 rank under format=ALL.
+
+  // Vehicle D: a single Short outranking everything (20M).
   await insertSignal({
-    vehicleId: v1,
+    vehicleId: vehicleD,
+    sourceId: sourceB,
+    views: 20000000,
+    title: "Video D",
+    url: "https://y/video-d",
+    publishedAt: now
+  });
+
+  // Vehicle Long: a Short (200,000) and a long-form video
+  // (2,000,000). format=SHORTS must pick the Short as the
+  // vehicle's top video; format=ALL must switch to the
+  // long-form video.
+  await insertSignal({
+    vehicleId: vehicleLong,
+    sourceId: sourceA,
+    views: 200000,
+    title: "Vehicle Long Short Clip",
+    url: "https://y/long-short",
+    publishedAt: now
+  });
+  await insertSignal({
+    vehicleId: vehicleLong,
     sourceId: sourceA,
     views: 2000000,
-    title: "GT3 RS Full Review",
-    url: "https://y/v1-long",
+    title: "Vehicle Long Full Review",
+    url: "https://y/long-review",
     publishedAt: now,
     isShort: false
   });
 
-  // V2: one recent Short (200,000) + one Short from 5 years ago
-  // (999,999) -- the 5-year-old signal must only count once
-  // ONE_YEAR is widened to TEN_YEARS / ALL_TIME.
+  // Vehicle Scope: an old, high-view Short (999,999 @ 5 years
+  // ago) and a recent, low-view Short (1,000 @ now). Narrowing
+  // the scope to ONE_YEAR must switch this vehicle's top video
+  // from the 5-year-old one to the recent one.
   await insertSignal({
-    vehicleId: v2,
+    vehicleId: vehicleScope,
     sourceId: sourceA,
-    views: 200000,
-    title: "M4 Competition Burnout",
-    url: "https://y/v3",
-    publishedAt: now
-  });
-  await insertSignal({
-    vehicleId: v2,
-    sourceId: sourceB,
     views: 999999,
-    title: "M4 Competition Classic Drift",
-    url: "https://y/v9",
+    title: "Vehicle Scope Old Viral Clip",
+    url: "https://y/scope-old",
     publishedAt: fiveYearsAgo
   });
-
-  // V4 vs V5: identical SUM (100,000) with different MAX --
-  // proves the MAX-views tie-break.
   await insertSignal({
-    vehicleId: v4,
+    vehicleId: vehicleScope,
     sourceId: sourceA,
-    views: 60000,
-    title: "RS3 Drag Run",
-    url: "https://y/v5",
-    publishedAt: now
-  });
-  await insertSignal({
-    vehicleId: v4,
-    sourceId: sourceB,
-    views: 40000,
-    title: "RS3 Launch",
-    url: "https://y/v6",
-    publishedAt: now
-  });
-  await insertSignal({
-    vehicleId: v5,
-    sourceId: sourceA,
-    views: 100000,
-    title: "Civic Type R Track Day",
-    url: "https://y/v7",
+    views: 1000,
+    title: "Vehicle Scope Recent Clip",
+    url: "https://y/scope-recent",
     publishedAt: now
   });
 
-  // V6: a 15-year-old Short -- must drop out of TEN_YEARS but
-  // remain in ALL_TIME.
+  // Vehicle Classic: a single 15-year-old Short -- must drop
+  // out of TEN_YEARS but remain in ALL_TIME.
   await insertSignal({
-    vehicleId: v6,
+    vehicleId: vehicleClassic,
     sourceId: sourceA,
-    views: 777,
-    title: "Classic Icon Archive Footage",
-    url: "https://y/v10",
+    views: 500,
+    title: "Vehicle Classic Archive Footage",
+    url: "https://y/classic",
     publishedAt: fifteenYearsAgo
   });
 
-  // V3: must NEVER appear -- one signal is UNRESOLVED despite
-  // having a resolved_vehicle_id, the other has zero views.
+  // Vehicle Ghost: must NEVER appear -- one signal is
+  // UNRESOLVED despite having a resolved_vehicle_id, the other
+  // has zero views.
   await insertSignal({
-    vehicleId: v3,
+    vehicleId: vehicleGhost,
     sourceId: sourceA,
     views: 100000,
-    title: "Supra Unresolved",
-    url: "https://y/v8",
+    title: "Ghost Unresolved",
+    url: "https://y/ghost-unresolved",
     publishedAt: now,
     resolutionStatus: "UNRESOLVED"
   });
   await insertSignal({
-    vehicleId: v3,
+    vehicleId: vehicleGhost,
     sourceId: sourceA,
     views: 0,
-    title: "Supra Zero Views",
-    url: "https://y/v8b",
+    title: "Ghost Zero Views",
+    url: "https://y/ghost-zero",
     publishedAt: now
   });
 
@@ -982,13 +1010,23 @@ async function buildHistoricalFixturePool() {
   await insertSignal({
     vehicleId: null,
     sourceId: sourceA,
-    views: 500000,
+    views: 50000000,
     title: "Unlinked Vehicle Footage",
-    url: "https://y/v11",
+    url: "https://y/unlinked",
     publishedAt: now
   });
 
-  return { pool, ids: { v1, v2, v3, v4, v5, v6 } };
+  return {
+    pool,
+    ids: {
+      vehicleA,
+      vehicleD,
+      vehicleLong,
+      vehicleScope,
+      vehicleClassic,
+      vehicleGhost
+    }
+  };
 }
 
 async function runHistoricalRankingCorrectnessTests() {
@@ -1015,9 +1053,8 @@ async function runHistoricalRankingCorrectnessTests() {
   );
 
   // -------------------------------------------------------
-  // Default: ALL_TIME / SHORTS / historical_views. Distinct
-  // vehicles only, ranked by SUM(views) with MAX-views and
-  // signal_count tie-breaks.
+  // Default: ALL_TIME / SHORTS. Each vehicle keeps only its
+  // own single highest-viewed eligible video.
   // -------------------------------------------------------
 
   const defaultResult = await listVehicleHistoricalRanking(
@@ -1028,71 +1065,75 @@ async function runHistoricalRankingCorrectnessTests() {
   assert.equal(defaultResult.statusCode, 200);
   assert.equal(defaultResult.payload.history_complete, true);
 
-  const defaultIds = defaultResult.payload.data.map(
-    row => row.vehicle_id
-  );
+  const defaultRows = defaultResult.payload.data;
+  const defaultIds = defaultRows.map(row => row.vehicle_id);
 
-  // V3 (unresolved / zero-view) and the unlinked-vehicle
-  // signal must never appear.
-  assert.ok(!defaultIds.includes(ids.v3));
+  // Vehicle Ghost (unresolved / zero-view) and the
+  // unlinked-vehicle signal must never appear.
+  assert.ok(!defaultIds.includes(ids.vehicleGhost));
+
+  // Every vehicle appears exactly once.
+  assert.equal(
+    new Set(defaultIds).size,
+    defaultIds.length,
+    "Each vehicle must appear exactly once in the ranking."
+  );
 
   assert.deepEqual(
     defaultIds,
-    [ids.v2, ids.v1, ids.v5, ids.v4, ids.v6],
-    "Default ranking must be distinct-vehicle SUM(views) DESC, tie-broken by MAX(views) DESC."
+    [
+      ids.vehicleD,
+      ids.vehicleA,
+      ids.vehicleScope,
+      ids.vehicleLong,
+      ids.vehicleClassic
+    ],
+    "Ranking must be ordered by each vehicle's single top video views DESC."
   );
 
-  const v2Row = defaultResult.payload.data.find(
-    row => row.vehicle_id === ids.v2
+  // The exact scenario from the correction: Vehicle A has
+  // 10M/5M/3M videos -- the ranking must use ONLY the 10M
+  // video, never 18M. Vehicle D's single 20M video must rank
+  // above it.
+  assert.equal(defaultRows[0].vehicle_id, ids.vehicleD);
+  assert.equal(Number(defaultRows[0].video_views), 20000000);
+  assert.equal(defaultRows[0].video_title, "Video D");
+
+  assert.equal(defaultRows[1].vehicle_id, ids.vehicleA);
+  assert.equal(Number(defaultRows[1].video_views), 10000000);
+  assert.equal(defaultRows[1].video_title, "Video A");
+  assert.notEqual(
+    Number(defaultRows[1].video_views),
+    18000000,
+    "Vehicle A must never be ranked by 10M + 5M + 3M summed together."
   );
 
-  assert.equal(
-    Number(v2Row.historical_views_total),
-    200000 + 999999,
-    "SUM must add every distinct video's views for the vehicle, never double count."
+  const vehicleARow = defaultRows.find(
+    row => row.vehicle_id === ids.vehicleA
   );
 
-  assert.equal(Number(v2Row.max_video_views), 999999);
-  assert.equal(Number(v2Row.signal_count), 2);
-  assert.equal(Number(v2Row.source_count), 2);
-  assert.equal(v2Row.rank, 1);
+  // Reference-only field: it must reflect all 3 eligible
+  // videos, but it must never have driven the ranking above.
+  assert.equal(Number(vehicleARow.vehicle_signal_count), 3);
 
-  const v1Row = defaultResult.payload.data.find(
-    row => row.vehicle_id === ids.v1
-  );
+  assert.equal(vehicleARow.entity_match_method, "MODEL_ALIAS");
+  assert.deepEqual(vehicleARow.entity_evidence, {
+    matched_terms: ["Vehicle A"]
+  });
 
-  // The long-form video (2,000,000 views) must be excluded
-  // under the default SHORTS format.
-  assert.equal(Number(v1Row.historical_views_total), 160000);
-  assert.equal(Number(v1Row.signal_count), 2);
-
-  const v5Row = defaultResult.payload.data.find(
-    row => row.vehicle_id === ids.v5
-  );
-  const v4Row = defaultResult.payload.data.find(
-    row => row.vehicle_id === ids.v4
-  );
-
-  assert.equal(
-    Number(v5Row.historical_views_total),
-    Number(v4Row.historical_views_total),
-    "V4 and V5 fixtures must be an exact SUM tie."
-  );
-
-  assert.ok(
-    Number(v5Row.max_video_views) >
-      Number(v4Row.max_video_views),
-    "Tie-break vehicle (V5) must have the higher MAX(views)."
-  );
-
-  assert.equal(
-    v1Row.representative_video_title,
-    "GT3 RS Launch Control",
-    "Representative video must be the highest-viewed eligible signal."
-  );
+  // No aggregate/derived-score fields must leak into the
+  // response at all.
+  for (const row of defaultRows) {
+    assert.equal(row.historical_views_total, undefined);
+    assert.equal(row.max_video_views, undefined);
+    assert.equal(row.fusion_score, undefined);
+    assert.equal(row.rank_score, undefined);
+    assert.equal(row.growth_velocity, undefined);
+  }
 
   // -------------------------------------------------------
-  // format=ALL: long-form video counts, reordering the top rank.
+  // format=ALL: Vehicle Long's top video switches from its
+  // 200,000-view Short to its 2,000,000-view long-form review.
   // -------------------------------------------------------
 
   const allFormatResult = await listVehicleHistoricalRanking(
@@ -1100,16 +1141,37 @@ async function runHistoricalRankingCorrectnessTests() {
     new URLSearchParams({ format: "ALL" })
   );
 
+  const vehicleLongAllRow = allFormatResult.payload.data.find(
+    row => row.vehicle_id === ids.vehicleLong
+  );
+
   assert.equal(
-    allFormatResult.payload.data[0].vehicle_id,
-    ids.v1,
-    "Including long-form videos must let V1's 2,000,000-view review outrank V2."
+    Number(vehicleLongAllRow.video_views),
+    2000000,
+    "format=ALL must let the long-form video become the vehicle's top video."
+  );
+  assert.equal(
+    vehicleLongAllRow.video_title,
+    "Vehicle Long Full Review"
+  );
+
+  const defaultVehicleLongRow = defaultRows.find(
+    row => row.vehicle_id === ids.vehicleLong
+  );
+
+  assert.equal(
+    Number(defaultVehicleLongRow.video_views),
+    200000,
+    "format=SHORTS (default) must keep the Short as the vehicle's top video."
   );
 
   // -------------------------------------------------------
-  // history_scope: ONE_YEAR excludes the 5-year-old signal;
-  // TEN_YEARS and ALL_TIME include it, but only ALL_TIME
-  // reaches back 15 years.
+  // history_scope: narrowing to ONE_YEAR must switch Vehicle
+  // Scope's top video from its 5-year-old 999,999-view clip
+  // to its recent 1,000-view clip, and must drop Vehicle
+  // Classic (15 years old) entirely. TEN_YEARS keeps the
+  // 5-year-old clip but still drops the 15-year-old one.
+  // ALL_TIME includes both.
   // -------------------------------------------------------
 
   const oneYearResult = await listVehicleHistoricalRanking(
@@ -1117,21 +1179,21 @@ async function runHistoricalRankingCorrectnessTests() {
     new URLSearchParams({ history_scope: "ONE_YEAR" })
   );
 
-  const oneYearV2 = oneYearResult.payload.data.find(
-    row => row.vehicle_id === ids.v2
+  const oneYearScopeRow = oneYearResult.payload.data.find(
+    row => row.vehicle_id === ids.vehicleScope
   );
 
   assert.equal(
-    Number(oneYearV2.historical_views_total),
-    200000,
-    "ONE_YEAR scope must exclude the 5-year-old signal."
+    Number(oneYearScopeRow.video_views),
+    1000,
+    "ONE_YEAR scope must exclude the 5-year-old video and fall back to the recent one."
   );
 
   assert.ok(
     !oneYearResult.payload.data.some(
-      row => row.vehicle_id === ids.v6
+      row => row.vehicle_id === ids.vehicleClassic
     ),
-    "ONE_YEAR scope must exclude the 15-year-old signal."
+    "ONE_YEAR scope must exclude the 15-year-old-only vehicle."
   );
 
   const tenYearsResult = await listVehicleHistoricalRanking(
@@ -1139,11 +1201,17 @@ async function runHistoricalRankingCorrectnessTests() {
     new URLSearchParams({ history_scope: "TEN_YEARS" })
   );
 
+  const tenYearsScopeRow = tenYearsResult.payload.data.find(
+    row => row.vehicle_id === ids.vehicleScope
+  );
+
+  assert.equal(Number(tenYearsScopeRow.video_views), 999999);
+
   assert.ok(
     !tenYearsResult.payload.data.some(
-      row => row.vehicle_id === ids.v6
+      row => row.vehicle_id === ids.vehicleClassic
     ),
-    "TEN_YEARS scope must exclude the 15-year-old signal."
+    "TEN_YEARS scope must exclude the 15-year-old-only vehicle."
   );
 
   const allTimeResult = await listVehicleHistoricalRanking(
@@ -1153,24 +1221,9 @@ async function runHistoricalRankingCorrectnessTests() {
 
   assert.ok(
     allTimeResult.payload.data.some(
-      row => row.vehicle_id === ids.v6
+      row => row.vehicle_id === ids.vehicleClassic
     ),
-    "ALL_TIME scope must include the 15-year-old signal."
-  );
-
-  // -------------------------------------------------------
-  // sort=max_video_views / signal_count
-  // -------------------------------------------------------
-
-  const maxViewsResult = await listVehicleHistoricalRanking(
-    pool,
-    new URLSearchParams({ sort: "max_video_views" })
-  );
-
-  assert.equal(
-    maxViewsResult.payload.data[0].vehicle_id,
-    ids.v2,
-    "sort=max_video_views must rank by the single highest video, not the SUM."
+    "ALL_TIME scope must include the 15-year-old-only vehicle."
   );
 
   // -------------------------------------------------------
@@ -1185,25 +1238,33 @@ async function runHistoricalRankingCorrectnessTests() {
   );
 
   // -------------------------------------------------------
-  // Evidence detail endpoint
+  // Evidence detail endpoint: the single top video, not a
+  // list of every video for the vehicle.
   // -------------------------------------------------------
 
   const detailResult = await getVehicleHistoricalDetail(
     pool,
-    String(ids.v1),
+    String(ids.vehicleA),
     new URLSearchParams()
   );
 
   assert.equal(detailResult.statusCode, 200);
-  assert.equal(detailResult.payload.data.signal_count, 2);
   assert.equal(
-    detailResult.payload.data.historical_views_total,
-    160000
+    detailResult.payload.data.vehicle_signal_count,
+    3
   );
   assert.equal(
-    detailResult.payload.data.evidence[0].title,
-    "GT3 RS Launch Control",
-    "Evidence must be sorted by views descending."
+    detailResult.payload.data.top_video.video_title,
+    "Video A",
+    "Detail must surface the single highest-viewed video, not an aggregate."
+  );
+  assert.equal(
+    Number(detailResult.payload.data.top_video.video_views),
+    10000000
+  );
+  assert.equal(
+    detailResult.payload.data.top_video.entity_match_method,
+    "MODEL_ALIAS"
   );
 
   const missingDetail = await getVehicleHistoricalDetail(

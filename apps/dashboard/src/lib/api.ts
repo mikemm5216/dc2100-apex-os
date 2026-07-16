@@ -1908,11 +1908,6 @@ export type VehicleHistoryScope =
 
 export type VehicleHistoricalFormat = "SHORTS" | "ALL";
 
-export type VehicleHistoricalSort =
-  | "historical_views"
-  | "max_video_views"
-  | "signal_count";
-
 export type VehicleHistoricalScanSummary = {
   history_complete: boolean;
   pages_scanned: number | null;
@@ -1922,35 +1917,47 @@ export type VehicleHistoricalScanSummary = {
   scan_completed_at: string | null;
 };
 
+export type VehicleHistoricalEntityEvidence =
+  Record<string, unknown>;
+
+// Each row is ONE video -- the single highest-viewed eligible
+// video for its distinct resolved vehicle. Never a per-vehicle
+// SUM of views.
 export type VehicleHistoricalRecord = {
   rank: number;
+
+  signal_id: string;
+  external_video_id: string | null;
+  video_title: string;
+  video_url: string;
+  thumbnail_url: string | null;
+  video_views: string;
+  published_at: string | null;
+  channel_title: string | null;
+
+  source_id: string | null;
+  source_name: string | null;
+
   vehicle_id: string;
   vehicle_code: string;
   vehicle_name: string;
   manufacturer: string | null;
 
-  historical_views_total: string;
-  max_video_views: string;
-  signal_count: number;
-  source_count: number;
+  // Reference only -- how many eligible videos this vehicle
+  // has in scope. Never used to rank the Top 10.
+  vehicle_signal_count: number;
 
-  earliest_published_at: string | null;
-  latest_published_at: string | null;
+  entity_evidence: VehicleHistoricalEntityEvidence | null;
+  entity_match_method: string | null;
 
   history_scope: VehicleHistoryScope;
   format: VehicleHistoricalFormat;
   history_complete: boolean;
-
-  representative_signal_id: string;
-  representative_video_title: string;
-  representative_video_url: string;
-  representative_video_views: string;
 };
 
 export type VehicleHistoricalFilters = {
   history_scope: VehicleHistoryScope;
   format: VehicleHistoricalFormat;
-  sort: VehicleHistoricalSort;
   limit: number;
   offset: number;
 };
@@ -1969,21 +1976,24 @@ export type VehicleHistoricalResponse = {
 export type FetchVehicleHistoricalRankingInput = {
   history_scope?: VehicleHistoryScope;
   format?: VehicleHistoricalFormat;
-  sort?: VehicleHistoricalSort;
   limit?: number;
   offset?: number;
 };
 
-export type VehicleHistoricalEvidenceItem = {
+export type VehicleHistoricalTopVideo = {
   signal_id: string;
-  title: string;
-  url: string;
-  views: string;
+  external_video_id: string | null;
+  video_title: string;
+  video_url: string;
+  thumbnail_url: string | null;
+  video_views: string;
   published_at: string | null;
   is_short: boolean;
   short_format: SignalShortFormat;
   channel_title: string | null;
   source_name: string | null;
+  entity_evidence: VehicleHistoricalEntityEvidence | null;
+  entity_match_method: string | null;
 };
 
 export type VehicleHistoricalDetail = {
@@ -1994,11 +2004,9 @@ export type VehicleHistoricalDetail = {
   history_scope: VehicleHistoryScope;
   format: VehicleHistoricalFormat;
   history_complete: boolean;
-  signal_count: number;
-  historical_views_total: number;
-  max_video_views: number;
+  vehicle_signal_count: number;
   scan_summary: VehicleHistoricalScanSummary;
-  evidence: VehicleHistoricalEvidenceItem[];
+  top_video: VehicleHistoricalTopVideo | null;
 };
 
 export async function fetchVehicleHistoricalRanking(
@@ -2013,10 +2021,6 @@ export async function fetchVehicleHistoricalRanking(
 
   if (input.format) {
     query.set("format", input.format);
-  }
-
-  if (input.sort) {
-    query.set("sort", input.sort);
   }
 
   if (input.limit !== undefined) {
