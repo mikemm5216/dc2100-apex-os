@@ -205,6 +205,27 @@ async function buildFixturePool() {
     );
   `);
 
+  await pool.query(`
+    CREATE TABLE youtube_search_query_cache (
+      id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      normalized_query TEXT NOT NULL, format TEXT NOT NULL, provider TEXT NOT NULL,
+      result_video_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+      searched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ NOT NULL,
+      search_result_count INTEGER NOT NULL DEFAULT 0, error_code TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(normalized_query,format,provider)
+    );
+    CREATE TABLE youtube_daily_search_budget (
+      quota_date_pacific DATE PRIMARY KEY, daily_limit INTEGER NOT NULL DEFAULT 100,
+      automated_safe_limit INTEGER NOT NULL DEFAULT 90, reserved_credits INTEGER NOT NULL DEFAULT 10,
+      search_calls_used INTEGER NOT NULL DEFAULT 0, vehicle_search_calls INTEGER NOT NULL DEFAULT 0,
+      person_search_calls INTEGER NOT NULL DEFAULT 0, pair_search_calls INTEGER NOT NULL DEFAULT 0,
+      country_event_search_calls INTEGER NOT NULL DEFAULT 0, manual_reserved_calls INTEGER NOT NULL DEFAULT 0,
+      cache_hits INTEGER NOT NULL DEFAULT 0, blocked_search_calls INTEGER NOT NULL DEFAULT 0,
+      last_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
   async function insertCountry(code, name) {
     const result = await pool.query(
       `INSERT INTO countries (code, name) VALUES ($1, $2) RETURNING id`,

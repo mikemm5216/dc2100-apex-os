@@ -1134,19 +1134,22 @@ function runCountryEventVideoRunValidationTests() {
   assert.deepEqual(defaultRun.value, {
     window_hours: 168,
     format: "SHORTS",
-    max_entities: 20
+    max_entities: 20,
+    station_run_key: null
   });
 
   const customRun = validateCountryEventVideoRunPayload({
     window_hours: 24,
     format: "ALL",
-    max_entities: 5
+    max_entities: 5,
+    station_run_key: null
   });
 
   assert.deepEqual(customRun.value, {
     window_hours: 24,
     format: "ALL",
-    max_entities: 5
+    max_entities: 5,
+    station_run_key: null
   });
 
   for (const invalidBody of [

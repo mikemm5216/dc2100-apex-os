@@ -46,6 +46,11 @@ const {
   listFusionCandidates,
   listFusionRuns
 } = require("../../../lib/fusion/api");
+const {
+  getContentModes,
+  getLockedCanonNewsMatrix,
+  getDailySearchBudget
+} = require("../../../lib/content/api");
 
 const {
   createAutoFlowRun,
@@ -1702,6 +1707,29 @@ function createRequestHandler(pool) {
         result.statusCode,
         result.payload
       );
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  if (req.method === "GET" && pathname === "/content-modes") {
+    const result = await getContentModes();
+    return sendJson(res, result.statusCode, result.payload);
+  }
+
+  if (req.method === "GET" && pathname === "/locked-canon/news-candidates") {
+    try {
+      const result = await getLockedCanonNewsMatrix(pool);
+      return sendJson(res, result.statusCode, result.payload);
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  if (req.method === "GET" && pathname === "/youtube-search-budget") {
+    try {
+      const result = await getDailySearchBudget(pool);
+      return sendJson(res, result.statusCode, result.payload);
     } catch (error) {
       return handleDatabaseError(res, error);
     }

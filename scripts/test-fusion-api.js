@@ -26,7 +26,10 @@ assert.deepEqual(validRun.value, {
   max_news_per_vehicle: 2,
   max_people_per_vehicle: 2,
   vehicle_ids: null,
-  pair_run_id: null
+  pair_run_id: null,
+  allow_partial_pair_run: false,
+  content_mode: "STATION_GUEST",
+  station_search_budget: 30
 });
 
 const defaultRun = validateFusionRunPayload({});
@@ -38,7 +41,10 @@ assert.deepEqual(defaultRun.value, {
   max_news_per_vehicle: 3,
   max_people_per_vehicle: 3,
   vehicle_ids: null,
-  pair_run_id: null
+  pair_run_id: null,
+  allow_partial_pair_run: false,
+  content_mode: "STATION_GUEST",
+  station_search_budget: 30
 });
 
 for (const invalidBody of [
@@ -53,6 +59,8 @@ for (const invalidBody of [
   { vehicle_ids: ["abc"] },
   { pair_run_id: 0 },
   { pair_run_id: "abc" },
+  { allow_partial_pair_run: "true" },
+  { content_mode: "UNKNOWN" },
   null,
   []
 ]) {
@@ -103,6 +111,12 @@ function createRunConflictPool() {
 }
 
 async function run() {
+  const lockedCanon = await createFusionRun(createRunConflictPool(), {
+    content_mode: "LOCKED_CANON"
+  });
+  assert.equal(lockedCanon.statusCode, 409);
+  assert.equal(lockedCanon.payload.error, "LOCKED_CANON_BYPASSES_FUSION");
+
   const conflict = await createFusionRun(
     createRunConflictPool(),
     {}
@@ -110,6 +124,37 @@ async function run() {
 
   assert.equal(conflict.statusCode, 409);
   assert.equal(conflict.payload.error, "FUSION_RUN_ACTIVE");
+
+  // FAILED/PARTIAL Pair Runs are rejected unless explicitly diagnostic.
+  const notReadyPool = {
+    async query(sql, values = []) {
+      if (sql.includes("status IN ('QUEUED', 'RUNNING')")) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (sql.includes("FROM vehicle_person_pair_runs")) {
+        return {
+          rows: [{ id: "3", status: "PARTIAL", summary: { target_reached: false } }],
+          rowCount: 1
+        };
+      }
+      if (sql.includes("INSERT INTO fusion_runs")) {
+        return {
+          rows: [{ id: "12", status: "QUEUED", request_payload: JSON.parse(values[0]) }],
+          rowCount: 1
+        };
+      }
+      throw new Error(`Unexpected not-ready query: ${sql.slice(0, 80)}`);
+    }
+  };
+  const notReady = await createFusionRun(notReadyPool, { pair_run_id: "3" });
+  assert.equal(notReady.statusCode, 409);
+  assert.equal(notReady.payload.error, "PAIR_RUN_NOT_READY_FOR_FUSION");
+  const diagnosticQueued = await createFusionRun(notReadyPool, {
+    pair_run_id: "3",
+    allow_partial_pair_run: true
+  });
+  assert.equal(diagnosticQueued.statusCode, 202);
+  assert.equal(diagnosticQueued.payload.data.request_payload.allow_partial_pair_run, true);
 
   // ---------------------------------------------------------
   // createFusionRun: happy path queues the run with the

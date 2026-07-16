@@ -1,0 +1,197 @@
+{
+  "version": "locked-canon-roster-15-v1",
+  "content_mode": "LOCKED_CANON",
+  "source": {
+    "document": "Gemini.docx",
+    "drive_file_id": "1hXjOVLEKSGhzhZuzXVRPlVD-FWFM7gY8",
+    "chapter": "參、神之 15 人（正規參賽陣容與專屬後勤）",
+    "extracted_at": "2026-07-16T00:00:00.000Z"
+  },
+  "slots": [
+    {
+      "slot_id": "CANDIDATE_SLOT_01",
+      "slot_number": 1,
+      "canon_driver_name": "麥克斯 (Max)",
+      "canon_vehicle_name": "黑鴉 GTO",
+      "vehicle": { "brand": "Pontiac", "series": "GTO", "model": "1970 Pontiac GTO" },
+      "canon_country_code": "US",
+      "team_name": "黑鴉 GTO 陣營：農場大叔與阿贊（含鬥牛犬）",
+      "driver_archetype": "廢土直線皇帝",
+      "story_function": "以美式肌肉車與廢土直線速度形成力量型對手",
+      "review_flags": []
+    },
+    {
+      "slot_id": "CANDIDATE_SLOT_02",
+      "slot_number": 2,
+      "canon_driver_name": "肯吉 (Kenji)",
+      "canon_vehicle_name": "沖繩野馬",
+      "vehicle": { "brand": "Ford", "series": "Mustang", "model": "Mustang Dark Horse" },
+      "canon_country_code": "JP",
+      "team_name": "沖繩野馬陣營：馮恩專屬後勤",
+      "driver_archetype": "暴力漂移狂徒",
+      "story_function": "以沖繩街頭文化與暴力漂移構成狂徒型對手",
+      "review_flags": []
+    },
+    {
+      "slot_id": "CANDIDATE_SLOT_03",
+      "slot_number": 3,
+      "canon_driver_name": "米克 (Mick)",
+      "canon_vehicle_name": "澳洲瘋子",
+      "vehicle": { "brand": "Ford", "series": "Falcon", "model": "Falcon XR6 Turbo" },
+      "canon_country_code": "AU",
+      "team_name": "澳洲瘋子陣營：蓋札專屬後勤",
+      "driver_archetype": null,
+      "story_function": "以澳洲高輸出直六渦輪與粗獷作風形成異質對手",
+      "review_flags": ["CANON_FIELD_REVIEW_REQUIRED:driver_archetype"]
+    },
+    {
+      "slot_id": "CANDIDATE_SLOT_04",
+      "slot_number": 4,
+      "canon_driver_name": "阿洋 (Yang)",
+      "canon_vehicle_name": "狂龍號",
+      "vehicle": { "brand": "Audi", "series": "TT", "model": "TT RS" },
+      "canon_country_code": "TW",
+      "team_name": "狂龍號陣營：龍董專屬後勤",
+      "driver_archetype": "冷靜承受千匹馬力彈射的車手",
+      "story_function": "以台灣性能改裝與極端馬力呈現技術控制型對手",
+      "review_flags": []
+    },
+    {
+      "slot_id": "CANDIDATE_SLOT_05",
+      "slot_number": 5,
+      "canon_driver_name": "貝蒂 (Betty)",
+      "canon_vehicle_name": "拉力硬皮鯊",
+      "vehicle": { "brand": "Subaru", "series": "Impreza", "model": "Impreza GC8" },
+      "canon_country_code": "TW",
+      "team_name": "拉力硬皮鯊陣營：章董（父親）專屬後勤",
+      "driver_archetype": "攻擊性強烈的 WRC 女車手",
+      "story_function": "以父女關係與拉力血統形成情感及技術雙線對手",
+      "review_flags": []
+    },
+    {
+      "slot_id": "CANDIDATE_SLOT_06",
+      "slot_number": 6,
+      "canon_driver_name": "煙鬼 (Smokey)",
+      "canon_vehicle_name": "金魔 Supra",
+      "vehicle": { "brand": "Toyota", "series": "Supra", "model": "Supra" },
+      "canon_country_code": "JP",
+      "team_name": "金魔 Supra 陣營：大叔 Dai 專屬後勤",
+      "driver_archetype": "以突破 350 km/h 為誓的極速挑戰者",
+      "story_function": "以 V12 雙渦輪與最高速執念代表極速派",
+      "review_flags": []
+    },
+    {
+      "slot_id": "CANDIDATE_SLOT_07",
+      "slot_number": 7,
+      "canon_driver_name": "VTEC 信徒",
+      "canon_vehicle_name": "萬轉本田",
+      "vehicle": { "brand": "Honda", "series": "Civic", "model": "Civic Type R" },
+      "canon_country_code": "JP",
+      "team_name": "萬轉本田陣營：樹大師專屬後勤",
+      "driver_archetype": "高轉自然進氣與 VTEC 信仰的純粹主義者",
+      "story_function": "以高轉信仰對抗大馬力，代表純粹駕駛派",
+      "review_flags": []
+    },
+    {
+      "slot_id": "CANDIDATE_SLOT_08",
+      "slot_number": 8,
+      "canon_driver_name": "凌宇（神經元）",
+      "canon_vehicle_name": "小米 SU7 Ultra",
+      "vehicle": { "brand": "Xiaomi", "series": "SU7", "model": "SU7 Ultra" },
+      "canon_country_code": "CN",
+      "team_name": null,
+      "driver_archetype": "神經元連結 Dome 的超電動車手",
+      "story_function": "以神經連結與超級電動性能代表未來科技派",
+      "review_flags": ["CANON_FIELD_REVIEW_REQUIRED:team_name"]
+    },
+    {
+      "slot_id": "CANDIDATE_SLOT_09",
+      "slot_number": 9,
+      "canon_driver_name": "金 (Kim)",
+      "canon_vehicle_name": "電競魔王",
+      "vehicle": { "brand": "Hyundai", "series": "Elantra", "model": "Elantra N" },
+      "canon_country_code": "KR",
+      "team_name": "電競魔王陣營：K 教練專屬後勤",
+      "driver_archetype": "前電競世界冠軍",
+      "story_function": "把電競反應與資料化操駕帶入實車競賽",
+      "review_flags": []
+    },
+    {
+      "slot_id": "CANDIDATE_SLOT_10",
+      "slot_number": 10,
+      "canon_driver_name": "漢斯 (Hans)",
+      "canon_vehicle_name": "綠色皇帝",
+      "vehicle": { "brand": "Porsche", "series": "911", "model": "911 GT3 RS" },
+      "canon_country_code": "DE",
+      "team_name": "綠色皇帝陣營：奧拉夫專屬後勤",
+      "driver_archetype": "冷酷精準的賽道線車手",
+      "story_function": "以德式精密與賽道效率構成秩序型強敵",
+      "review_flags": []
+    },
+    {
+      "slot_id": "CANDIDATE_SLOT_11",
+      "slot_number": 11,
+      "canon_driver_name": "亞歷山德羅 (Alessandro)",
+      "canon_vehicle_name": "紅衣騎士",
+      "vehicle": { "brand": "Ferrari", "series": "488", "model": "488 Pista" },
+      "canon_country_code": "IT",
+      "team_name": "紅衣騎士陣營：沃爾夫專屬後勤",
+      "driver_archetype": null,
+      "story_function": "以義式超跑傳統與騎士意象形成名門型對手",
+      "review_flags": ["CANON_FIELD_REVIEW_REQUIRED:driver_archetype"]
+    },
+    {
+      "slot_id": "CANDIDATE_SLOT_12",
+      "slot_number": 12,
+      "canon_driver_name": "幽靈 (The Specter)",
+      "canon_vehicle_name": "白色亡靈",
+      "vehicle": { "brand": "Lotus", "series": "Exige", "model": "Exige Cup 430" },
+      "canon_country_code": "GB",
+      "team_name": "白色亡靈陣營：英倫三劍客專屬後勤",
+      "driver_archetype": "戴面具且沉默的神秘車手",
+      "story_function": "以極致輕量化與不明身分製造懸疑型對手",
+      "review_flags": []
+    },
+    {
+      "slot_id": "CANDIDATE_SLOT_13",
+      "slot_number": 13,
+      "canon_driver_name": "埃里克 (Erik)",
+      "canon_vehicle_name": "飛行磚塊",
+      "vehicle": { "brand": "Volvo", "series": "850", "model": "850 R Estate" },
+      "canon_country_code": "SE",
+      "team_name": "飛行磚塊陣營：肯斯專屬後勤",
+      "driver_archetype": "使用鐘擺漂移的北歐大叔",
+      "story_function": "以旅行車外型反差與拉力式技巧形成奇兵",
+      "review_flags": []
+    },
+    {
+      "slot_id": "CANDIDATE_SLOT_14",
+      "slot_number": 14,
+      "canon_driver_name": "柯林 (Colin)",
+      "canon_vehicle_name": "拉力亡魂",
+      "vehicle": { "brand": "Mitsubishi", "series": "Lancer", "model": "Lancer Evolution VIII" },
+      "canon_country_code": "GB",
+      "team_name": "拉力亡魂陣營：尼基隨車後勤",
+      "driver_archetype": null,
+      "story_function": "以副駕領航與經典拉力血統構成雙人協作型對手",
+      "review_flags": ["CANON_FIELD_REVIEW_REQUIRED:driver_archetype"]
+    },
+    {
+      "slot_id": "CANDIDATE_SLOT_15",
+      "slot_number": 15,
+      "canon_driver_name": null,
+      "canon_vehicle_name": "傳奇繼承者",
+      "vehicle": { "brand": "Toyota", "series": "86", "model": "86" },
+      "canon_country_code": "JP",
+      "team_name": null,
+      "driver_archetype": null,
+      "story_function": "以傳奇繼承與新世代駕駛構成終局傳承線",
+      "review_flags": [
+        "CANON_FIELD_REVIEW_REQUIRED:canon_driver_name",
+        "CANON_FIELD_REVIEW_REQUIRED:team_name",
+        "CANON_FIELD_REVIEW_REQUIRED:driver_archetype",
+        "MF_GHOST_SOURCE_IDENTITY_REMOVED"
+      ]
+    }
+  ]
+}

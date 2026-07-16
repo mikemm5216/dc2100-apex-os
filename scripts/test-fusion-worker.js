@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const { processNextFusionRun } = require("../lib/fusion/engine");
 
-function createMockDb({ run, pairs, newsByCountry }) {
+function createMockDb({ run, pairs, newsByCountry, supersedeEligible = true }) {
   const state = {
     run: { ...run, status: "QUEUED" },
     candidates: [],
@@ -44,6 +44,9 @@ function createMockDb({ run, pairs, newsByCountry }) {
       state.run.status = values[0];
       state.statusHistory.push(values[0]);
       return { rows: [], rowCount: 1 };
+    }
+    if (sql.includes("AS eligible") && sql.includes("vehicle_fusion_candidates")) {
+      return { rows: [{ eligible: supersedeEligible }], rowCount: 1 };
     }
     if (
       sql.includes("UPDATE fusion_runs") &&
@@ -135,6 +138,19 @@ async function run() {
   const noPair = await processNextFusionRun(noPairDb, { workerId: "test-worker" });
   assert.equal(noPair.status, "FAILED");
   assert.match(noPairDb.state.run.errorMessage, /NO_VEHICLE_PERSON_PAIR_SIGNALS/);
+
+  const diagnosticDb = createMockDb({
+    run: {
+      id: 4,
+      request_payload: { pair_run_id: "3", allow_partial_pair_run: true }
+    },
+    pairs: [pair({ run_id: "3" })],
+    newsByCountry: { "20": [news] },
+    supersedeEligible: false
+  });
+  const diagnostic = await processNextFusionRun(diagnosticDb, { workerId: "test-worker" });
+  assert.equal(diagnostic.status, "COMPLETED");
+  assert.equal(diagnosticDb.state.supersededMarked, false);
   console.log("VEHICLE-PERSON PAIR FUSION WORKER TESTS PASSED");
 }
 

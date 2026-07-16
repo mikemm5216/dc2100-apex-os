@@ -15,7 +15,11 @@ const {
   selectDistinctPairOutcome,
   selectTopDistinctBrandAndPersonPairs,
   scanBrandAnchorBatches,
-  normalizePairRunPayload
+  normalizePairRunPayload,
+  PairQuotaBlockedError,
+  buildPairSearchQueries,
+  executePairSearchQuery,
+  searchPair
 } = require("../lib/person/vehicle-person-pair-engine");
 const {
   runPersonFictionalizationValidator
@@ -133,6 +137,14 @@ assert.match(f1MigrationSource, /\('MC', 'Monaco', TRUE\)/);
 assert.match(f1MigrationSource, /\('ES', 'Spain', TRUE\)/);
 assert.match(f1MigrationSource, /\('BR', 'Brazil', TRUE\)/);
 assert.match(f1MigrationSource, /superseded_by_run_id/);
+const quotaMigrationSource = fs.readFileSync(
+  require.resolve("../db/migrations/020_pair_search_quota_resume.sql"),
+  "utf8"
+);
+assert.match(quotaMigrationSource, /'PARTIAL'/);
+assert.match(quotaMigrationSource, /CREATE TABLE IF NOT EXISTS youtube_search_query_cache/);
+assert.match(quotaMigrationSource, /UNIQUE\(normalized_query, format, provider\)/);
+assert.match(quotaMigrationSource, /UPDATE fusion_runs previous/);
 assert.equal(validateRunPayload({ history_scope: "ALL_TIME", format: "SHORTS", max_vehicles: 10 }), null);
 assert.equal(validateRunPayload({ history_scope: "RECENT" }).statusCode, 400);
 
@@ -268,7 +280,10 @@ async function runDistinctBrandTests() {
     targetPairs: 7,
     maxBrandAnchors: 50,
     brandBatchSize: 25,
-    maxPeoplePerVehicle: 10
+    maxPeoplePerVehicle: 10,
+    maxSearchQueries: 90,
+    resumeRunId: null,
+    stationRunKey: null
   });
   assert.equal(validateRunPayload({ target_pairs: 10, max_brand_anchors: 9 }).statusCode, 400);
   assert.equal(validateRunPayload({ brand_batch_size: 4 }).statusCode, 400);
@@ -292,8 +307,33 @@ async function runDistinctBrandTests() {
     target_pairs: 7,
     max_brand_anchors: 50,
     brand_batch_size: 25,
-    max_people_per_vehicle: 10
+    max_people_per_vehicle: 10,
+    max_search_queries: 90,
+    resume_run_id: null,
+    station_run_key: null
   });
+  let resumedPayload = null;
+  const resumed = await createVehiclePersonPairRun({
+    async query(sql, values = []) {
+      if (sql.includes("status IN ('QUEUED','RUNNING')")) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (sql.includes("SELECT id,status,request_payload,summary")) {
+        return {
+          rows: [{ id: "3", status: "FAILED", summary: { target_reached: false } }],
+          rowCount: 1
+        };
+      }
+      if (sql.includes("INSERT INTO vehicle_person_pair_runs")) {
+        resumedPayload = JSON.parse(values[0]);
+        assert.equal(values[1], "3");
+        return { rows: [{ id: 4, status: "QUEUED", request_payload: resumedPayload }], rowCount: 1 };
+      }
+      throw new Error(`Unexpected resume API query: ${sql.slice(0, 80)}`);
+    }
+  }, { resume_run_id: "3", max_search_queries: 90 });
+  assert.equal(resumed.statusCode, 202);
+  assert.equal(resumedPayload.resume_run_id, "3");
 
   // 13-15. Fusion reads selected pairs, deduplicates brands, and keeps person-country binding.
   const fusionSource = fs.readFileSync(require.resolve("../lib/fusion/engine"), "utf8");
@@ -447,7 +487,125 @@ async function runDistinctBrandTests() {
   assert.match(fusionSource, /countryId:\s*pair\.person_country_id/);
   assert.match(fusionSource, /person_rn=1/);
 
-  console.log("VEHICLE-PERSON PAIR WORKER TESTS PASSED (29 existing + 16 distinct-brand + 15 unique-person/F1 cases)");
+  // Quota/resume regressions. Query aliases are normalized and never duplicate.
+  const queryLink = {
+    canonical_name: "Lewis Hamilton",
+    aliases: ["Lewis Hamilton", "Sir Lewis"],
+    vehicle_brand: "Ferrari",
+    vehicle_series: "SF",
+    vehicle_model: "SF-26"
+  };
+  const planned = buildPairSearchQueries(queryLink, { vehicle_brand: "Ferrari" });
+  assert.ok(planned.primary.length <= 2);
+  assert.equal(new Set([...planned.primary, planned.conditional].filter(Boolean)
+    .map(item => item.toLowerCase())).size,
+  [...planned.primary, planned.conditional].filter(Boolean).length);
+
+  const searchState = (overrides = {}) => ({
+    searchQueriesPlanned: 0, searchQueriesCacheHit: 0,
+    searchQueriesApiCalled: 0, searchQueries: 0,
+    maxSearchQueries: 90, videosListCalls: 0,
+    quotaBudgetExhausted: false, quotaErrors: 0,
+    quotaUnits: 0, videosDiscovered: 0, videosEvaluated: 0,
+    needMorePairs: () => true, ...overrides
+  });
+  const cachePool = cachedIds => {
+    async function query(sql) {
+      if (sql.includes("FROM youtube_search_query_cache")) {
+        return cachedIds === null
+          ? { rows: [], rowCount: 0 }
+          : { rows: [{ result_video_ids: cachedIds }], rowCount: 1 };
+      }
+      if (sql.includes("INSERT INTO youtube_search_query_cache")) {
+        return { rows: [], rowCount: 1 };
+      }
+      if (sql.includes("INSERT INTO youtube_daily_search_budget") ||
+        ["BEGIN", "COMMIT", "ROLLBACK"].includes(sql.trim())) {
+        return { rows: [], rowCount: 1 };
+      }
+      if (sql.includes("FROM youtube_daily_search_budget")) {
+        return {
+          rows: [{ search_calls_used: 0, automated_safe_limit: 90 }],
+          rowCount: 1
+        };
+      }
+      if (sql.includes("UPDATE youtube_daily_search_budget")) {
+        return { rows: [], rowCount: 1 };
+      }
+      throw new Error(`Unexpected cache query: ${sql.slice(0, 80)}`);
+    }
+    return {
+      query,
+      async connect() { return { query, release() {} }; }
+    };
+  };
+
+  // Cache hits consume no search.list budget but still refresh videos.list details.
+  let searchCalls = 0;
+  let videoDetailCalls = 0;
+  const cachedState = searchState();
+  const cachedMatch = await searchPair(
+    cachePool(["cached-video"]), queryLink,
+    { vehicle_brand: "Ferrari" }, "SHORTS", "key", cachedState,
+    {
+      async searchVideos() { searchCalls += 1; return []; },
+      async fetchVideos(ids, options) {
+        videoDetailCalls += 1;
+        options.onRequest();
+        return [video({
+          videoId: ids[0],
+          title: "Sir Lewis drives Ferrari SF-26"
+        })];
+      }
+    }
+  );
+  assert.ok(cachedMatch);
+  assert.equal(searchCalls, 0);
+  assert.equal(cachedState.searchQueriesApiCalled, 0);
+  assert.ok(cachedState.searchQueriesCacheHit >= 1);
+  assert.ok(videoDetailCalls >= 1);
+  assert.ok(cachedState.videosListCalls >= 1);
+
+  // The 91st cache miss is blocked before search.list is called.
+  const cappedState = searchState({ searchQueriesApiCalled: 90, searchQueries: 90 });
+  await assert.rejects(
+    executePairSearchQuery(
+      cachePool(null), "new query", "SHORTS", "key", cappedState,
+      { async searchVideos() { searchCalls += 1; return []; } }
+    ),
+    error => error instanceof PairQuotaBlockedError
+  );
+  assert.equal(cappedState.searchQueriesApiCalled, 90);
+  assert.equal(cappedState.quotaBudgetExhausted, true);
+
+  // Provider quota errors become a resumable quota condition.
+  const providerState = searchState();
+  await assert.rejects(
+    executePairSearchQuery(
+      cachePool(null), "quota query", "SHORTS", "key", providerState,
+      { async searchVideos() { throw new Error("quotaExceeded: Search Queries per day"); } }
+    ),
+    error => error.code === "YOUTUBE_SEARCH_QUOTA_BLOCKED"
+  );
+  assert.equal(providerState.quotaErrors, 1);
+  assert.equal(providerState.quotaBudgetExhausted, true);
+
+  // A partial batch preserves acquired candidates and a progress cursor.
+  const partialScan = await scanBrandAnchorBatches({
+    anchors: [anchor("First", 1), anchor("Second", 2)],
+    batchSize: 5,
+    targetPairs: 10,
+    scanAnchor: async item => {
+      if (item.vehicle_id === 1) return usablePair("First", 1, 100);
+      throw new PairQuotaBlockedError("quota", { person_id: "22", next_query_stage: 2 });
+    }
+  });
+  assert.equal(partialScan.quotaBlocked, true);
+  assert.equal(partialScan.usablePairs.length, 1);
+  assert.equal(partialScan.pendingAnchor.person_id, "22");
+  assert.equal(partialScan.pendingAnchor.next_query_stage, 2);
+
+  console.log("VEHICLE-PERSON PAIR WORKER TESTS PASSED (including quota/cache/resume regressions)");
 }
 
 runDistinctBrandTests().catch(error => {
