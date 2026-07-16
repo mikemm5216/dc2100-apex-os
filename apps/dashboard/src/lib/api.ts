@@ -2714,6 +2714,8 @@ export type PersonDirectVideoRun = {
   id: string;
   status: DualVideoRunStatus;
   request_payload: {
+    history_scope?: PersonPackHistoryScope;
+    format?: PersonPackFormat;
     max_entities?: number;
   };
   summary: DualVideoRunSummary;
@@ -2734,6 +2736,8 @@ export type PersonDirectVideoRun = {
 };
 
 export type QueuePersonDirectVideoRunInput = {
+  history_scope?: PersonPackHistoryScope;
+  format?: PersonPackFormat;
   max_entities?: number;
 };
 

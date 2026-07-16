@@ -184,7 +184,11 @@ export function PersonDualVideoSignals() {
     setError(null);
 
     try {
-      const nextRun = await queuePersonDirectVideoRun({});
+      const nextRun = await queuePersonDirectVideoRun({
+        history_scope: scope,
+        format,
+        max_entities: 50,
+      });
 
       setRun(nextRun);
     } catch (queueError) {

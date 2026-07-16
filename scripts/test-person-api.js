@@ -1226,17 +1226,29 @@ async function runPersonDualVideoCorrectnessTests() {
 function runPersonDirectVideoRunValidationTests() {
   const defaultRun = validatePersonDirectVideoRunPayload({});
 
-  assert.deepEqual(defaultRun.value, { max_entities: 20 });
+  assert.deepEqual(defaultRun.value, {
+    history_scope: "ALL_TIME",
+    format: "SHORTS",
+    max_entities: 50
+  });
 
   const customRun = validatePersonDirectVideoRunPayload({
+    history_scope: "ONE_YEAR",
+    format: "ALL",
     max_entities: 8
   });
 
-  assert.deepEqual(customRun.value, { max_entities: 8 });
+  assert.deepEqual(customRun.value, {
+    history_scope: "ONE_YEAR",
+    format: "ALL",
+    max_entities: 8
+  });
 
   for (const invalidBody of [
     { max_entities: 0 },
     { max_entities: 51 },
+    { history_scope: "FIVE_YEARS" },
+    { format: "MEDIUM" },
     null,
     []
   ]) {
@@ -1270,7 +1282,11 @@ async function runPersonDirectVideoRunQueueTests() {
           {
             id: "1",
             status: "QUEUED",
-            request_payload: { max_entities: 20 },
+            request_payload: {
+              history_scope: "ALL_TIME",
+              format: "SHORTS",
+              max_entities: 50
+            },
             created_at: new Date().toISOString()
           }
         ],

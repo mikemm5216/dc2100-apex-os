@@ -614,6 +614,399 @@ async function run() {
     );
   }
 
+  // -------------------------------------------------------
+  // format=SHORTS must save the Short, not the higher-viewed
+  // Long-form video, when both are direct-mention candidates.
+  // -------------------------------------------------------
+  {
+    const { pool, insertPerson, queueRun } =
+      await buildFixturePool();
+
+    await insertPerson("sam-hooker", "Sam Hooker", ["Hook"]);
+
+    const queuedRun = await queueRun({
+      history_scope: "ALL_TIME",
+      format: "SHORTS"
+    });
+
+    const mock = createYoutubeFetchMock({
+      searchResponses: [["sh-long", "sh-short"]],
+      videos: {
+        "sh-long": {
+          id: "sh-long",
+          title: "Sam Hooker Full Onboard Lap",
+          views: 20000000,
+          duration: "PT10M"
+        },
+        "sh-short": {
+          id: "sh-short",
+          title: "Sam Hooker Sends It",
+          views: 8000000,
+          duration: "PT30S"
+        }
+      }
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = mock.fetchMock;
+
+    let result;
+
+    try {
+      result = await executePersonDirectVideoRun(
+        pool,
+        queuedRun,
+        { apiKey: FAKE_API_KEY }
+      );
+    } finally {
+      global.fetch = originalFetch;
+    }
+
+    assert.equal(result.videosMatchedCount, 1);
+
+    const savedRow = (
+      await pool.query(
+        `SELECT * FROM person_direct_video_signals`
+      )
+    ).rows[0];
+
+    assert.equal(
+      savedRow.external_video_id,
+      "sh-short",
+      "SHORTS run must persist the Short, never the higher-viewed Long-form video."
+    );
+    assert.equal(Number(savedRow.video_views), 8000000);
+  }
+
+  // -------------------------------------------------------
+  // format=ALL must save the higher-viewed Long-form video
+  // over a lower-viewed Short.
+  // -------------------------------------------------------
+  {
+    const { pool, insertPerson, queueRun } =
+      await buildFixturePool();
+
+    await insertPerson("ada-driver", "Ada Driver");
+
+    const queuedRun = await queueRun({
+      history_scope: "ALL_TIME",
+      format: "ALL"
+    });
+
+    const mock = createYoutubeFetchMock({
+      searchResponses: [["ad-long", "ad-short"]],
+      videos: {
+        "ad-long": {
+          id: "ad-long",
+          title: "Ada Driver Full Onboard Lap",
+          views: 20000000,
+          duration: "PT10M"
+        },
+        "ad-short": {
+          id: "ad-short",
+          title: "Ada Driver Sends It",
+          views: 8000000,
+          duration: "PT30S"
+        }
+      }
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = mock.fetchMock;
+
+    let result;
+
+    try {
+      result = await executePersonDirectVideoRun(
+        pool,
+        queuedRun,
+        { apiKey: FAKE_API_KEY }
+      );
+    } finally {
+      global.fetch = originalFetch;
+    }
+
+    assert.equal(result.videosMatchedCount, 1);
+
+    const savedRow = (
+      await pool.query(
+        `SELECT * FROM person_direct_video_signals`
+      )
+    ).rows[0];
+
+    assert.equal(
+      savedRow.external_video_id,
+      "ad-long",
+      "ALL run must persist the higher-viewed Long-form video."
+    );
+    assert.equal(Number(savedRow.video_views), 20000000);
+  }
+
+  // -------------------------------------------------------
+  // history_scope filtering: ONE_YEAR excludes a two-year-old
+  // video (no other candidate matches -> NO_MATCH).
+  // -------------------------------------------------------
+  {
+    const { pool, insertPerson, queueRun } =
+      await buildFixturePool();
+
+    await insertPerson("nia-old", "Nia Old");
+
+    const queuedRun = await queueRun({
+      history_scope: "ONE_YEAR"
+    });
+
+    const now = new Date("2026-07-16T00:00:00Z");
+    const twoYearsAgo = new Date(
+      now.getTime() - 2 * 365 * 24 * 3600000
+    ).toISOString();
+
+    const mock = createYoutubeFetchMock({
+      searchResponses: [["no-two-years-ago"]],
+      videos: {
+        "no-two-years-ago": {
+          id: "no-two-years-ago",
+          title: "Nia Old Classic Onboard",
+          views: 500000,
+          publishedAt: twoYearsAgo
+        }
+      }
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = mock.fetchMock;
+
+    let result;
+
+    try {
+      result = await executePersonDirectVideoRun(
+        pool,
+        queuedRun,
+        { apiKey: FAKE_API_KEY, now }
+      );
+    } finally {
+      global.fetch = originalFetch;
+    }
+
+    assert.equal(result.noMatchEntityCount, 1);
+    assert.equal(result.videosMatchedCount, 0);
+
+    const savedRows = await pool.query(
+      `SELECT * FROM person_direct_video_signals`
+    );
+
+    assert.equal(
+      savedRows.rowCount,
+      0,
+      "ONE_YEAR must exclude a two-year-old video."
+    );
+  }
+
+  // -------------------------------------------------------
+  // history_scope filtering: TEN_YEARS accepts a five-year-old
+  // video and excludes a fifteen-year-old one.
+  // -------------------------------------------------------
+  {
+    const { pool, insertPerson, queueRun } =
+      await buildFixturePool();
+
+    await insertPerson("ten-year-driver", "Ten Year Driver");
+
+    const queuedRun = await queueRun({
+      history_scope: "TEN_YEARS",
+      format: "ALL"
+    });
+
+    const now = new Date("2026-07-16T00:00:00Z");
+    const fiveYearsAgo = new Date(
+      now.getTime() - 5 * 365 * 24 * 3600000
+    ).toISOString();
+    const fifteenYearsAgo = new Date(
+      now.getTime() - 15 * 365 * 24 * 3600000
+    ).toISOString();
+
+    const mock = createYoutubeFetchMock({
+      searchResponses: [
+        ["ty-fifteen-years-ago", "ty-five-years-ago"]
+      ],
+      videos: {
+        // Higher views but too old for TEN_YEARS -- must be
+        // rejected even though it would otherwise win on views.
+        "ty-fifteen-years-ago": {
+          id: "ty-fifteen-years-ago",
+          title: "Ten Year Driver Vintage Footage",
+          views: 9000000,
+          publishedAt: fifteenYearsAgo,
+          duration: "PT10M"
+        },
+        "ty-five-years-ago": {
+          id: "ty-five-years-ago",
+          title: "Ten Year Driver Classic Lap",
+          views: 100000,
+          publishedAt: fiveYearsAgo,
+          duration: "PT10M"
+        }
+      }
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = mock.fetchMock;
+
+    let result;
+
+    try {
+      result = await executePersonDirectVideoRun(
+        pool,
+        queuedRun,
+        { apiKey: FAKE_API_KEY, now }
+      );
+    } finally {
+      global.fetch = originalFetch;
+    }
+
+    assert.equal(result.videosMatchedCount, 1);
+
+    const savedRow = (
+      await pool.query(
+        `SELECT * FROM person_direct_video_signals`
+      )
+    ).rows[0];
+
+    assert.equal(
+      savedRow.external_video_id,
+      "ty-five-years-ago",
+      "TEN_YEARS must accept the five-year-old video and reject the fifteen-year-old one."
+    );
+  }
+
+  // -------------------------------------------------------
+  // history_scope filtering: ALL_TIME accepts a fifteen-year-
+  // old video.
+  // -------------------------------------------------------
+  {
+    const { pool, insertPerson, queueRun } =
+      await buildFixturePool();
+
+    await insertPerson("all-time-driver", "All Time Driver");
+
+    const queuedRun = await queueRun({
+      history_scope: "ALL_TIME",
+      format: "ALL"
+    });
+
+    const now = new Date("2026-07-16T00:00:00Z");
+    const fifteenYearsAgo = new Date(
+      now.getTime() - 15 * 365 * 24 * 3600000
+    ).toISOString();
+
+    const mock = createYoutubeFetchMock({
+      searchResponses: [["at-fifteen-years-ago"]],
+      videos: {
+        "at-fifteen-years-ago": {
+          id: "at-fifteen-years-ago",
+          title: "All Time Driver Archive Footage",
+          views: 250000,
+          publishedAt: fifteenYearsAgo,
+          duration: "PT10M"
+        }
+      }
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = mock.fetchMock;
+
+    let result;
+
+    try {
+      result = await executePersonDirectVideoRun(
+        pool,
+        queuedRun,
+        { apiKey: FAKE_API_KEY, now }
+      );
+    } finally {
+      global.fetch = originalFetch;
+    }
+
+    assert.equal(result.videosMatchedCount, 1);
+
+    const savedRow = (
+      await pool.query(
+        `SELECT * FROM person_direct_video_signals`
+      )
+    ).rows[0];
+
+    assert.equal(
+      savedRow.external_video_id,
+      "at-fifteen-years-ago",
+      "ALL_TIME must accept a fifteen-year-old video."
+    );
+  }
+
+  // -------------------------------------------------------
+  // More than 20 active people: the 21st+ person is still
+  // processed, and the default max_entities is 50 (never 20).
+  // -------------------------------------------------------
+  {
+    const { pool, insertPerson, queueRun } =
+      await buildFixturePool();
+
+    const personCount = 21;
+    const searchResponses = [];
+    const videos = {};
+
+    for (let index = 1; index <= personCount; index += 1) {
+      const slug = `bulk-driver-${index}`;
+      const name = `Bulk Driver ${index}`;
+      const videoId = `bulk-${index}-match`;
+
+      await insertPerson(slug, name);
+
+      searchResponses.push([videoId]);
+      videos[videoId] = {
+        id: videoId,
+        title: `${name} Onboard Highlights`,
+        views: 1000 + index
+      };
+    }
+
+    // No max_entities supplied -- must default to 50, not 20,
+    // so all 21 people are attempted.
+    const queuedRun = await queueRun({});
+
+    const mock = createYoutubeFetchMock({
+      searchResponses,
+      videos
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = mock.fetchMock;
+
+    let result;
+
+    try {
+      result = await executePersonDirectVideoRun(
+        pool,
+        queuedRun,
+        { apiKey: FAKE_API_KEY }
+      );
+    } finally {
+      global.fetch = originalFetch;
+    }
+
+    assert.equal(result.entitiesAttempted, personCount);
+    assert.equal(result.videosMatchedCount, personCount);
+
+    const savedRows = await pool.query(
+      `SELECT * FROM person_direct_video_signals WHERE external_video_id = 'bulk-21-match'`
+    );
+
+    assert.equal(
+      savedRows.rowCount,
+      1,
+      "The 21st person must still be processed, not truncated at 20."
+    );
+  }
+
   console.log(
     "PERSON DIRECT VIDEO WORKER TESTS PASSED"
   );

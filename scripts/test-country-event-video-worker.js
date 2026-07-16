@@ -262,6 +262,40 @@ async function buildFixturePool() {
   };
 }
 
+// Wraps a real pg-mem pool so that a client obtained through
+// `.connect()` throws when it receives a query whose text
+// contains `matchSubstring` -- used to simulate a mid-
+// transaction DB failure (e.g. the INSERT in
+// upsertCountryEventVideoSignal) while every other query
+// (BEGIN, SELECT, ROLLBACK, and anything reached through
+// `pool.query` directly) passes through untouched.
+function wrapPoolWithFailingClient(pool, { matchSubstring }) {
+  return {
+    query: (...args) => pool.query(...args),
+    async connect() {
+      const client = await pool.connect();
+
+      return {
+        async query(sql, values) {
+          if (
+            typeof sql === "string" &&
+            sql.includes(matchSubstring)
+          ) {
+            throw new Error(
+              "Simulated database failure during INSERT."
+            );
+          }
+
+          return client.query(sql, values);
+        },
+        release() {
+          return client.release();
+        }
+      };
+    }
+  };
+}
+
 // Hand-rolled mock pool for the claim transaction only --
 // mirrors the convention used by every other claimNextXRun
 // test in this codebase, since pg-mem cannot parse
@@ -744,6 +778,417 @@ async function run() {
     assert.equal(
       String(savedRow.signal_id),
       String(existingSignal.rows[0].id)
+    );
+  }
+
+  // -------------------------------------------------------
+  // Confirmed NO_MATCH must clear a prior event's matched
+  // video: Run 1 (Event A) matches Video A; Run 2 (Event B,
+  // a new representative news signal) finds no qualifying
+  // video. Video A must no longer be readable afterward.
+  // -------------------------------------------------------
+  {
+    const {
+      pool,
+      insertCountry,
+      insertNewsSignal,
+      queueRun
+    } = await buildFixturePool();
+
+    const germany = await insertCountry("DE", "Germany");
+
+    await insertNewsSignal({
+      countryId: germany,
+      category: "WAR_SECURITY",
+      keywords: ["war"],
+      title: "Germany Event A",
+      publishedAt: new Date()
+    });
+
+    const run1 = await queueRun({});
+
+    const mockRun1 = createYoutubeFetchMock({
+      searchResponses: [["de-video-a"]],
+      videos: {
+        "de-video-a": {
+          id: "de-video-a",
+          title: "Germany War Update",
+          description: "",
+          tags: ["war"],
+          views: 500000,
+          publishedAt: new Date().toISOString()
+        }
+      }
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = mockRun1.fetchMock;
+
+    try {
+      const result1 = await executeCountryEventVideoRun(
+        pool,
+        run1,
+        { apiKey: FAKE_API_KEY }
+      );
+      assert.equal(result1.videosMatchedCount, 1);
+    } finally {
+      global.fetch = originalFetch;
+    }
+
+    const afterRun1 = await pool.query(
+      `SELECT * FROM country_event_video_signals WHERE country_id = $1`,
+      [germany]
+    );
+    assert.equal(afterRun1.rowCount, 1);
+    assert.equal(afterRun1.rows[0].external_video_id, "de-video-a");
+
+    // A new representative event (Event B) supersedes Event A.
+    await insertNewsSignal({
+      countryId: germany,
+      category: "WAR_SECURITY",
+      keywords: ["ceasefire"],
+      title: "Germany Event B",
+      publishedAt: new Date()
+    });
+
+    const run2 = await queueRun({});
+
+    const mockRun2 = createYoutubeFetchMock({
+      // Matches the country but not the new event's keyword --
+      // no qualifying candidate for Event B.
+      searchResponses: [["de-unrelated"]],
+      videos: {
+        "de-unrelated": {
+          id: "de-unrelated",
+          title: "Germany Travel Vlog",
+          description: "",
+          views: 100000,
+          publishedAt: new Date().toISOString()
+        }
+      }
+    });
+
+    global.fetch = mockRun2.fetchMock;
+
+    try {
+      const result2 = await executeCountryEventVideoRun(
+        pool,
+        run2,
+        { apiKey: FAKE_API_KEY }
+      );
+      assert.equal(result2.status, "COMPLETED");
+      assert.equal(result2.noMatchEntityCount, 1);
+      assert.equal(result2.videosMatchedCount, 0);
+    } finally {
+      global.fetch = originalFetch;
+    }
+
+    const afterRun2 = await pool.query(
+      `SELECT * FROM country_event_video_signals WHERE country_id = $1`,
+      [germany]
+    );
+    assert.equal(
+      afterRun2.rowCount,
+      0,
+      "Confirmed NO_MATCH must remove Video A -- it must never keep showing as if Event B matched it."
+    );
+  }
+
+  // -------------------------------------------------------
+  // A YouTube API error (thrown mid-search) must preserve the
+  // prior run's matched video -- ERROR is never treated as
+  // NO_MATCH.
+  // -------------------------------------------------------
+  {
+    const {
+      pool,
+      insertCountry,
+      insertNewsSignal,
+      queueRun
+    } = await buildFixturePool();
+
+    const germany = await insertCountry("DE", "Germany");
+
+    await insertNewsSignal({
+      countryId: germany,
+      category: "WAR_SECURITY",
+      keywords: ["war"],
+      title: "Germany Event A",
+      publishedAt: new Date()
+    });
+
+    const run1 = await queueRun({});
+
+    const mockRun1 = createYoutubeFetchMock({
+      searchResponses: [["de-video-a"]],
+      videos: {
+        "de-video-a": {
+          id: "de-video-a",
+          title: "Germany War Update",
+          tags: ["war"],
+          views: 500000,
+          publishedAt: new Date().toISOString()
+        }
+      }
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = mockRun1.fetchMock;
+
+    try {
+      await executeCountryEventVideoRun(pool, run1, {
+        apiKey: FAKE_API_KEY
+      });
+    } finally {
+      global.fetch = originalFetch;
+    }
+
+    const run2 = await queueRun({});
+
+    global.fetch = async () => {
+      throw new Error("Simulated YouTube API/quota error.");
+    };
+
+    let result2;
+
+    try {
+      result2 = await executeCountryEventVideoRun(pool, run2, {
+        apiKey: FAKE_API_KEY
+      });
+    } finally {
+      global.fetch = originalFetch;
+    }
+
+    assert.equal(result2.status, "FAILED");
+    assert.equal(result2.failedEntityCount, 1);
+    assert.equal(
+      result2.noMatchEntityCount,
+      0,
+      "An API error must never be recorded as NO_MATCH."
+    );
+
+    const afterRun2 = await pool.query(
+      `SELECT * FROM country_event_video_signals WHERE country_id = $1`,
+      [germany]
+    );
+    assert.equal(
+      afterRun2.rowCount,
+      1,
+      "An API error must preserve the prior run's matched video."
+    );
+    assert.equal(
+      afterRun2.rows[0].external_video_id,
+      "de-video-a"
+    );
+  }
+
+  // -------------------------------------------------------
+  // A newly matched video (Event B) must fully replace a
+  // prior matched video (Event A) -- only Video B remains.
+  // -------------------------------------------------------
+  {
+    const {
+      pool,
+      insertCountry,
+      insertNewsSignal,
+      queueRun
+    } = await buildFixturePool();
+
+    const germany = await insertCountry("DE", "Germany");
+
+    await insertNewsSignal({
+      countryId: germany,
+      category: "WAR_SECURITY",
+      keywords: ["war"],
+      title: "Germany Event A",
+      publishedAt: new Date()
+    });
+
+    const run1 = await queueRun({});
+
+    const mockRun1 = createYoutubeFetchMock({
+      searchResponses: [["de-video-a"]],
+      videos: {
+        "de-video-a": {
+          id: "de-video-a",
+          title: "Germany War Update",
+          tags: ["war"],
+          views: 500000,
+          publishedAt: new Date().toISOString()
+        }
+      }
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = mockRun1.fetchMock;
+
+    try {
+      await executeCountryEventVideoRun(pool, run1, {
+        apiKey: FAKE_API_KEY
+      });
+    } finally {
+      global.fetch = originalFetch;
+    }
+
+    await insertNewsSignal({
+      countryId: germany,
+      category: "WAR_SECURITY",
+      keywords: ["ceasefire"],
+      title: "Germany Event B",
+      publishedAt: new Date()
+    });
+
+    const run2 = await queueRun({});
+
+    const mockRun2 = createYoutubeFetchMock({
+      searchResponses: [["de-video-b"]],
+      videos: {
+        "de-video-b": {
+          id: "de-video-b",
+          title: "Germany Ceasefire Reaction",
+          tags: ["ceasefire"],
+          views: 700000,
+          publishedAt: new Date().toISOString()
+        }
+      }
+    });
+
+    global.fetch = mockRun2.fetchMock;
+
+    let result2;
+
+    try {
+      result2 = await executeCountryEventVideoRun(pool, run2, {
+        apiKey: FAKE_API_KEY
+      });
+    } finally {
+      global.fetch = originalFetch;
+    }
+
+    assert.equal(result2.videosMatchedCount, 1);
+
+    const afterRun2 = await pool.query(
+      `SELECT * FROM country_event_video_signals WHERE country_id = $1`,
+      [germany]
+    );
+
+    assert.equal(
+      afterRun2.rowCount,
+      1,
+      "Only the newly matched video (Event B) may remain for this country."
+    );
+    assert.equal(
+      afterRun2.rows[0].external_video_id,
+      "de-video-b"
+    );
+  }
+
+  // -------------------------------------------------------
+  // Transaction safety: if the INSERT half of the matched-
+  // replacement transaction fails, the prior matched video
+  // must survive untouched (never deleted first).
+  // -------------------------------------------------------
+  {
+    const {
+      pool,
+      insertCountry,
+      insertNewsSignal,
+      queueRun
+    } = await buildFixturePool();
+
+    const germany = await insertCountry("DE", "Germany");
+
+    await insertNewsSignal({
+      countryId: germany,
+      category: "WAR_SECURITY",
+      keywords: ["war"],
+      title: "Germany Event A",
+      publishedAt: new Date()
+    });
+
+    const run1 = await queueRun({});
+
+    const mockRun1 = createYoutubeFetchMock({
+      searchResponses: [["de-video-a"]],
+      videos: {
+        "de-video-a": {
+          id: "de-video-a",
+          title: "Germany War Update",
+          tags: ["war"],
+          views: 500000,
+          publishedAt: new Date().toISOString()
+        }
+      }
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = mockRun1.fetchMock;
+
+    try {
+      await executeCountryEventVideoRun(pool, run1, {
+        apiKey: FAKE_API_KEY
+      });
+    } finally {
+      global.fetch = originalFetch;
+    }
+
+    await insertNewsSignal({
+      countryId: germany,
+      category: "WAR_SECURITY",
+      keywords: ["ceasefire"],
+      title: "Germany Event B",
+      publishedAt: new Date()
+    });
+
+    const run2 = await queueRun({});
+
+    const mockRun2 = createYoutubeFetchMock({
+      searchResponses: [["de-video-b"]],
+      videos: {
+        "de-video-b": {
+          id: "de-video-b",
+          title: "Germany Ceasefire Reaction",
+          tags: ["ceasefire"],
+          views: 700000,
+          publishedAt: new Date().toISOString()
+        }
+      }
+    });
+
+    global.fetch = mockRun2.fetchMock;
+
+    const failingPool = wrapPoolWithFailingClient(pool, {
+      matchSubstring: "INSERT INTO country_event_video_signals"
+    });
+
+    let result2;
+
+    try {
+      result2 = await executeCountryEventVideoRun(
+        failingPool,
+        run2,
+        { apiKey: FAKE_API_KEY }
+      );
+    } finally {
+      global.fetch = originalFetch;
+    }
+
+    assert.equal(result2.status, "FAILED");
+    assert.equal(result2.failedEntityCount, 1);
+
+    const afterRun2 = await pool.query(
+      `SELECT * FROM country_event_video_signals WHERE country_id = $1`,
+      [germany]
+    );
+
+    assert.equal(
+      afterRun2.rowCount,
+      1,
+      "A failed INSERT must never delete the prior matched video (upsert-before-delete, whole transaction rolled back)."
+    );
+    assert.equal(
+      afterRun2.rows[0].external_video_id,
+      "de-video-a"
     );
   }
 
