@@ -2,14 +2,21 @@
 
 import { Fragment, useEffect, useState } from "react";
 
-import { fetchCountryDualVideoSignals } from "@/lib/api";
+import {
+  fetchCountryDualVideoSignals,
+  fetchCountryEventVideoRun,
+  queueCountryEventVideoRun,
+} from "@/lib/api";
 
 import type {
   CountryDualVideoPack,
   CountryDualVideoResponse,
+  CountryEventVideoRun,
   CountryPackFormat,
   CountryPackStatus,
 } from "@/lib/api";
+
+const activeRunStatuses = new Set(["QUEUED", "RUNNING"]);
 
 const formatOptions: Array<{
   value: CountryPackFormat;
@@ -70,6 +77,11 @@ export function CountryDualVideoSignals() {
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
+  const [run, setRun] = useState<CountryEventVideoRun | null>(
+    null
+  );
+  const [isQueueing, setIsQueueing] = useState(false);
+
   const [expandedCountryId, setExpandedCountryId] =
     useState<string | null>(null);
 
@@ -118,6 +130,67 @@ export function CountryDualVideoSignals() {
     return () => controller.abort();
   }, [format, status, reloadKey]);
 
+  const runId = run?.id;
+  const runStatus = run?.status;
+
+  useEffect(() => {
+    if (
+      !runId ||
+      !runStatus ||
+      !activeRunStatuses.has(runStatus)
+    ) {
+      return;
+    }
+
+    const timer = window.setInterval(async () => {
+      try {
+        const nextRun = await fetchCountryEventVideoRun(
+          runId
+        );
+
+        setRun(nextRun);
+
+        if (!activeRunStatuses.has(nextRun.status)) {
+          setReloadKey((value) => value + 1);
+        }
+      } catch (pollError) {
+        setError(
+          pollError instanceof Error
+            ? pollError.message
+            : "Failed to poll country event video run."
+        );
+      }
+    }, 2000);
+
+    return () => window.clearInterval(timer);
+  }, [runId, runStatus]);
+
+  async function handleRefresh() {
+    setIsQueueing(true);
+    setError(null);
+
+    try {
+      const nextRun = await queueCountryEventVideoRun({
+        window_hours: 168,
+        format,
+      });
+
+      setRun(nextRun);
+    } catch (queueError) {
+      setError(
+        queueError instanceof Error
+          ? queueError.message
+          : "Failed to queue country event video run."
+      );
+    } finally {
+      setIsQueueing(false);
+    }
+  }
+
+  const runIsActive = Boolean(
+    run && activeRunStatuses.has(run.status)
+  );
+
   const rows: CountryDualVideoPack[] = response?.data ?? [];
 
   return (
@@ -141,12 +214,24 @@ export function CountryDualVideoSignals() {
 
         <button
           type="button"
-          onClick={() => setReloadKey((value) => value + 1)}
-          className="h-10 rounded-lg border border-neutral-700 px-4 text-sm text-neutral-300"
+          onClick={handleRefresh}
+          disabled={isQueueing || runIsActive}
+          className="h-10 rounded-lg border border-neutral-700 px-4 text-sm text-neutral-300 disabled:opacity-50"
         >
-          Refresh
+          {runIsActive
+            ? `Running (${run?.status})...`
+            : isQueueing
+              ? "Queueing..."
+              : "Refresh"}
         </button>
       </div>
+
+      {run?.status === "FAILED" && (
+        <div className="border-b border-red-950 bg-red-950/20 px-5 py-3 text-sm text-red-300">
+          Country event video run failed:{" "}
+          {run.error_message ?? "Unknown error."}
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-3 border-b border-neutral-800 bg-neutral-900/30 p-4">
         <label className="space-y-1">

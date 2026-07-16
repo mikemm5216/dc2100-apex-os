@@ -2,15 +2,22 @@
 
 import { Fragment, useEffect, useState } from "react";
 
-import { fetchPersonDualVideoSignals } from "@/lib/api";
+import {
+  fetchPersonDirectVideoRun,
+  fetchPersonDualVideoSignals,
+  queuePersonDirectVideoRun,
+} from "@/lib/api";
 
 import type {
+  PersonDirectVideoRun,
   PersonDualVideoPack,
   PersonDualVideoResponse,
   PersonPackFormat,
   PersonPackHistoryScope,
   PersonPackStatus,
 } from "@/lib/api";
+
+const activeRunStatuses = new Set(["QUEUED", "RUNNING"]);
 
 const scopeOptions: Array<{
   value: PersonPackHistoryScope;
@@ -84,6 +91,11 @@ export function PersonDualVideoSignals() {
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
+  const [run, setRun] = useState<PersonDirectVideoRun | null>(
+    null
+  );
+  const [isQueueing, setIsQueueing] = useState(false);
+
   const [expandedPersonId, setExpandedPersonId] =
     useState<string | null>(null);
 
@@ -132,6 +144,64 @@ export function PersonDualVideoSignals() {
     return () => controller.abort();
   }, [scope, format, status, reloadKey]);
 
+  const runId = run?.id;
+  const runStatus = run?.status;
+
+  useEffect(() => {
+    if (
+      !runId ||
+      !runStatus ||
+      !activeRunStatuses.has(runStatus)
+    ) {
+      return;
+    }
+
+    const timer = window.setInterval(async () => {
+      try {
+        const nextRun = await fetchPersonDirectVideoRun(
+          runId
+        );
+
+        setRun(nextRun);
+
+        if (!activeRunStatuses.has(nextRun.status)) {
+          setReloadKey((value) => value + 1);
+        }
+      } catch (pollError) {
+        setError(
+          pollError instanceof Error
+            ? pollError.message
+            : "Failed to poll person direct video run."
+        );
+      }
+    }, 2000);
+
+    return () => window.clearInterval(timer);
+  }, [runId, runStatus]);
+
+  async function handleRefresh() {
+    setIsQueueing(true);
+    setError(null);
+
+    try {
+      const nextRun = await queuePersonDirectVideoRun({});
+
+      setRun(nextRun);
+    } catch (queueError) {
+      setError(
+        queueError instanceof Error
+          ? queueError.message
+          : "Failed to queue person direct video run."
+      );
+    } finally {
+      setIsQueueing(false);
+    }
+  }
+
+  const runIsActive = Boolean(
+    run && activeRunStatuses.has(run.status)
+  );
+
   const rows: PersonDualVideoPack[] = response?.data ?? [];
 
   return (
@@ -155,12 +225,24 @@ export function PersonDualVideoSignals() {
 
         <button
           type="button"
-          onClick={() => setReloadKey((value) => value + 1)}
-          className="h-10 rounded-lg border border-neutral-700 px-4 text-sm text-neutral-300"
+          onClick={handleRefresh}
+          disabled={isQueueing || runIsActive}
+          className="h-10 rounded-lg border border-neutral-700 px-4 text-sm text-neutral-300 disabled:opacity-50"
         >
-          Refresh
+          {runIsActive
+            ? `Running (${run?.status})...`
+            : isQueueing
+              ? "Queueing..."
+              : "Refresh"}
         </button>
       </div>
+
+      {run?.status === "FAILED" && (
+        <div className="border-b border-red-950 bg-red-950/20 px-5 py-3 text-sm text-red-300">
+          Person direct video run failed:{" "}
+          {run.error_message ?? "Unknown error."}
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-3 border-b border-neutral-800 bg-neutral-900/30 p-4">
         <label className="space-y-1">

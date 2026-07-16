@@ -12,8 +12,10 @@ const {
 } = require("../../../lib/scanner/api");
 
 const {
+  createCountryEventVideoRun,
   createCountryNewsRun,
   getCountryDualVideoSignal,
+  getCountryEventVideoRun,
   getCountryNewsDetail,
   getCountryNewsRun,
   listCountryDualVideoSignals,
@@ -21,7 +23,9 @@ const {
 } = require("../../../lib/news/api");
 
 const {
+  createPersonDirectVideoRun,
   createPersonRadarRun,
+  getPersonDirectVideoRun,
   getPersonDualVideoSignal,
   getPersonRadarDetail,
   getPersonRadarRun,
@@ -1369,6 +1373,60 @@ function createRequestHandler(pool) {
   // =======================================================
 
   if (
+    req.method === "POST" &&
+    pathname === "/country-dual-video-signals/run"
+  ) {
+    let body;
+
+    try {
+      body = await readJsonBody(req);
+    } catch (error) {
+      return sendJson(res, 400, {
+        error: error.message,
+        message:
+          "Request body must contain valid JSON."
+      });
+    }
+
+    try {
+      const result =
+        await createCountryEventVideoRun(pool, body);
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  const countryEventVideoRunMatch = pathname.match(
+    /^\/country-dual-video-signals\/runs\/([0-9]+)$/
+  );
+
+  if (
+    req.method === "GET" &&
+    countryEventVideoRunMatch
+  ) {
+    try {
+      const result = await getCountryEventVideoRun(
+        pool,
+        countryEventVideoRunMatch[1]
+      );
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  if (
     req.method === "GET" &&
     pathname === "/country-dual-video-signals"
   ) {
@@ -1518,6 +1576,60 @@ function createRequestHandler(pool) {
   // =======================================================
   // PERSON DUAL-VIDEO SIGNAL PACK
   // =======================================================
+
+  if (
+    req.method === "POST" &&
+    pathname === "/person-dual-video-signals/run"
+  ) {
+    let body;
+
+    try {
+      body = await readJsonBody(req);
+    } catch (error) {
+      return sendJson(res, 400, {
+        error: error.message,
+        message:
+          "Request body must contain valid JSON."
+      });
+    }
+
+    try {
+      const result =
+        await createPersonDirectVideoRun(pool, body);
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
+
+  const personDirectVideoRunMatch = pathname.match(
+    /^\/person-dual-video-signals\/runs\/([0-9]+)$/
+  );
+
+  if (
+    req.method === "GET" &&
+    personDirectVideoRunMatch
+  ) {
+    try {
+      const result = await getPersonDirectVideoRun(
+        pool,
+        personDirectVideoRunMatch[1]
+      );
+
+      return sendJson(
+        res,
+        result.statusCode,
+        result.payload
+      );
+    } catch (error) {
+      return handleDatabaseError(res, error);
+    }
+  }
 
   if (
     req.method === "GET" &&

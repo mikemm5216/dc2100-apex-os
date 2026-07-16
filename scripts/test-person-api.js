@@ -4,13 +4,16 @@ const { newDb } = require("pg-mem");
 
 const {
   PERSON_SORTS,
+  createPersonDirectVideoRun,
   createPersonRadarRun,
+  getPersonDirectVideoRun,
   getPersonDualVideoSignal,
   getPersonRadarDetail,
   listPersonDualVideoSignals,
   listPersonRadar,
   parsePersonDualVideoQuery,
   parsePersonRadarQuery,
+  validatePersonDirectVideoRunPayload,
   validatePersonRunPayload
 } = require("../lib/person/api");
 
@@ -629,14 +632,27 @@ async function buildPersonDualVideoFixturePool() {
     CREATE TABLE person_direct_video_signals (
       id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
       person_id BIGINT NOT NULL,
-      signal_id BIGINT NOT NULL,
+      signal_id BIGINT,
+      external_video_id TEXT NOT NULL,
+      video_title TEXT NOT NULL,
+      video_url TEXT NOT NULL,
+      thumbnail_url TEXT,
+      video_views BIGINT NOT NULL DEFAULT 0,
+      published_at TIMESTAMPTZ,
+      channel_id TEXT,
+      channel_title TEXT,
+      duration_seconds INTEGER,
+      description_excerpt TEXT,
+      tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+      search_query TEXT,
       matched_alias TEXT NOT NULL,
       direct_mention_field TEXT NOT NULL,
       evidence JSONB NOT NULL DEFAULT '{}'::jsonb,
+      resolver_version TEXT NOT NULL DEFAULT 'person-direct-video-search-v1',
       computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       CONSTRAINT person_direct_video_signals_unique
-        UNIQUE (person_id, signal_id)
+        UNIQUE (person_id, external_video_id)
     );
   `);
 
@@ -720,6 +736,52 @@ async function buildPersonDualVideoFixturePool() {
     return result.rows[0].id;
   }
 
+  // Simulates what a completed POST /person-dual-video-signals/run
+  // would have persisted -- the API layer never computes this
+  // itself, it only ever reads it back.
+  let directVideoCounter = 0;
+
+  async function insertDirectVideo({
+    personId,
+    signalId = null,
+    views,
+    title,
+    field,
+    matchedAlias,
+    publishedAt = now,
+    computedAt = new Date(),
+    durationSeconds = 30
+  }) {
+    directVideoCounter += 1;
+
+    const result = await pool.query(
+      `INSERT INTO person_direct_video_signals
+        (person_id, signal_id, external_video_id, video_title,
+         video_url, video_views, published_at, matched_alias,
+         direct_mention_field, computed_at, duration_seconds)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING id`,
+      [
+        personId,
+        signalId,
+        `direct-ext-${directVideoCounter}`,
+        title,
+        `https://y/direct-${directVideoCounter}`,
+        views,
+        publishedAt,
+        matchedAlias,
+        field,
+        computedAt,
+        durationSeconds
+      ]
+    );
+
+    return {
+      id: result.rows[0].id,
+      externalVideoId: `direct-ext-${directVideoCounter}`
+    };
+  }
+
   const now = new Date();
 
   const gtr = await insertVehicle("NISSANGTR", "GT-R", "Nissan");
@@ -757,13 +819,15 @@ async function buildPersonDualVideoFixturePool() {
     publishedAt: now
   });
 
-  const driverADirect = await insertSignal({
-    resolvedVehicleId: null,
-    resolutionStatus: "UNRESOLVED",
-    views: 50000,
-    title: "Max Driver Onboard Lap",
-    publishedAt: now
-  });
+  const driverADirect = (
+    await insertDirectVideo({
+      personId: driverA,
+      views: 50000,
+      title: "Max Driver Onboard Lap",
+      field: "TITLE",
+      matchedAlias: "Max Driver"
+    })
+  ).externalVideoId;
 
   // Driver B: BRAND_ASSOCIATION only, no direct mention video
   // anywhere -- ASSOCIATION_ONLY.
@@ -788,12 +852,15 @@ async function buildPersonDualVideoFixturePool() {
     "Sam Hooker",
     ["Hook"]
   );
-  const driverCDirect = await insertSignal({
-    resolutionStatus: "UNRESOLVED",
-    views: 300000,
-    title: "Sam Hooker Sends It",
-    publishedAt: now
-  });
+  const driverCDirect = (
+    await insertDirectVideo({
+      personId: driverC,
+      views: 300000,
+      title: "Sam Hooker Sends It",
+      field: "TAGS",
+      matchedAlias: "Sam Hooker"
+    })
+  ).externalVideoId;
 
   // Driver D: nothing matches at all -- NO_MATCH.
   const driverD = await insertPerson(
@@ -822,6 +889,19 @@ async function buildPersonDualVideoFixturePool() {
     views: 900000,
     title: "Vic Shared Drives the New RS3",
     publishedAt: now
+  });
+
+  // The direct-hook search independently found the SAME video
+  // (the engine's existing-signal lookup resolved it to this
+  // signal_id) -- this is what produces shared_signal, not a
+  // live re-scan of `signals`.
+  await insertDirectVideo({
+    personId: driverE,
+    signalId: driverESharedSignal,
+    views: 900000,
+    title: "Vic Shared Drives the New RS3",
+    field: "TITLE",
+    matchedAlias: "Vic"
   });
 
   // Driver F: MODEL_ASSOCIATION tier -- link has no vehicle_id,
@@ -884,12 +964,15 @@ async function buildPersonDualVideoFixturePool() {
       driverESharedSignal: String(driverESharedSignal),
       driverFModelAssoc: String(driverFModelAssoc),
       driverGSeriesAssoc: String(driverGSeriesAssoc)
+    },
+    helpers: {
+      insertDirectVideo
     }
   };
 }
 
 async function runPersonDualVideoCorrectnessTests() {
-  const { pool, ids } =
+  const { pool, ids, helpers } =
     await buildPersonDualVideoFixturePool();
 
   const allResult = await listPersonDualVideoSignals(
@@ -954,18 +1037,21 @@ async function runPersonDualVideoCorrectnessTests() {
     "GTR Nurburgring Lap does not mention Max Driver -- direct_mention must be false."
   );
 
-  // 2: direct mention video preserved, independent role.
+  // 2: direct mention video preserved, independent role. It
+  // has no `signals` row of its own (nullable signal_id) --
+  // it is identified by external_video_id instead.
   assert.equal(
-    packA.person_direct_hook_video.signal_id,
+    packA.person_direct_hook_video.external_video_id,
     ids.driverADirect
   );
+  assert.equal(packA.person_direct_hook_video.signal_id, null);
   assert.equal(
     packA.person_direct_hook_video.direct_mention,
     true
   );
   assert.notEqual(
     packA.person_association_video.signal_id,
-    packA.person_direct_hook_video.signal_id
+    packA.person_direct_hook_video.external_video_id
   );
 
   // 5 + 8: brand association legal but tagged, ASSOCIATION_ONLY.
@@ -983,10 +1069,21 @@ async function runPersonDualVideoCorrectnessTests() {
   // 8: DIRECT_ONLY -- no vehicle_person_links at all.
   assert.equal(packC.status, "DIRECT_ONLY");
   assert.equal(
-    packC.person_direct_hook_video.signal_id,
+    packC.person_direct_hook_video.external_video_id,
     ids.driverCDirect
   );
   assert.equal(packC.person_association_video, null);
+
+  // TITLE and TAGS direct_mention_field are both accepted and
+  // surfaced verbatim from whatever the run persisted.
+  assert.equal(
+    packA.person_direct_hook_video.direct_mention_field,
+    "TITLE"
+  );
+  assert.equal(
+    packC.person_direct_hook_video.direct_mention_field,
+    "TAGS"
+  );
 
   // 8: NO_MATCH.
   assert.equal(packD.status, "NO_MATCH");
@@ -1055,8 +1152,206 @@ async function runPersonDualVideoCorrectnessTests() {
 
   assert.equal(notFoundResult.statusCode, 404);
 
+  // A later run for the same person overwrites the GET-visible
+  // answer -- GET always reads the most recently computed
+  // match, never the first one ever persisted.
+  await pool.query(
+    `UPDATE person_direct_video_signals SET computed_at = $1`,
+    [new Date(Date.now() - 60 * 60 * 1000)]
+  );
+
+  await helpers.insertDirectVideo({
+    personId: ids.driverC,
+    views: 999999,
+    title: "Sam Hooker Sends It -- Newer Run",
+    field: "DESCRIPTION",
+    matchedAlias: "Sam Hooker",
+    computedAt: new Date()
+  });
+
+  const rerunResult = await listPersonDualVideoSignals(
+    pool,
+    new URLSearchParams({ status: "ALL" })
+  );
+
+  const packCRerun = rerunResult.payload.data.find(
+    pack => pack.person_id === ids.driverC
+  );
+
+  assert.equal(
+    packCRerun.person_direct_hook_video.video_title,
+    "Sam Hooker Sends It -- Newer Run",
+    "GET must surface the most recently computed run, not the first one."
+  );
+  assert.equal(
+    packCRerun.person_direct_hook_video.direct_mention_field,
+    "DESCRIPTION"
+  );
+
+  // GET must never write to the database: row counts before
+  // and after a GET call stay identical.
+  const beforeCounts = await pool.query(
+    `SELECT COUNT(*)::int AS n FROM person_direct_video_signals`
+  );
+
+  await listPersonDualVideoSignals(
+    pool,
+    new URLSearchParams({ status: "ALL" })
+  );
+  await getPersonDualVideoSignal(
+    pool,
+    ids.driverA,
+    new URLSearchParams()
+  );
+
+  const afterCounts = await pool.query(
+    `SELECT COUNT(*)::int AS n FROM person_direct_video_signals`
+  );
+
+  assert.equal(
+    beforeCounts.rows[0].n,
+    afterCounts.rows[0].n,
+    "GET must never insert or update person_direct_video_signals."
+  );
+
   console.log(
     "PERSON DUAL VIDEO CORRECTNESS TESTS PASSED"
+  );
+}
+
+// ---------------------------------------------------------
+// Person Direct Video Run: payload validation + queueing
+// ---------------------------------------------------------
+
+function runPersonDirectVideoRunValidationTests() {
+  const defaultRun = validatePersonDirectVideoRunPayload({});
+
+  assert.deepEqual(defaultRun.value, { max_entities: 20 });
+
+  const customRun = validatePersonDirectVideoRunPayload({
+    max_entities: 8
+  });
+
+  assert.deepEqual(customRun.value, { max_entities: 8 });
+
+  for (const invalidBody of [
+    { max_entities: 0 },
+    { max_entities: 51 },
+    null,
+    []
+  ]) {
+    const result =
+      validatePersonDirectVideoRunPayload(invalidBody);
+
+    assert.equal(
+      result.error?.statusCode,
+      400,
+      `Payload ${JSON.stringify(invalidBody)} must be rejected.`
+    );
+  }
+
+  console.log(
+    "PERSON DIRECT VIDEO RUN VALIDATION TESTS PASSED"
+  );
+}
+
+async function runPersonDirectVideoRunQueueTests() {
+  // POST /person-dual-video-signals/run queues a run -- it
+  // never performs the search itself.
+  const queuePool = createCapturingPool([
+    {
+      match: "FROM person_direct_video_signal_runs",
+      result: { rows: [], rowCount: 0 }
+    },
+    {
+      match: "INSERT INTO person_direct_video_signal_runs",
+      result: {
+        rows: [
+          {
+            id: "1",
+            status: "QUEUED",
+            request_payload: { max_entities: 20 },
+            created_at: new Date().toISOString()
+          }
+        ],
+        rowCount: 1
+      }
+    }
+  ]);
+
+  const queueResult = await createPersonDirectVideoRun(
+    queuePool,
+    {}
+  );
+
+  assert.equal(queueResult.statusCode, 202);
+  assert.equal(queueResult.payload.data.status, "QUEUED");
+
+  // A second run cannot be queued while one is active.
+  const activePool = createCapturingPool([
+    {
+      match: "FROM person_direct_video_signal_runs",
+      result: {
+        rows: [
+          {
+            id: "1",
+            status: "RUNNING",
+            created_at: new Date().toISOString(),
+            started_at: new Date().toISOString()
+          }
+        ],
+        rowCount: 1
+      }
+    }
+  ]);
+
+  const conflictResult = await createPersonDirectVideoRun(
+    activePool,
+    {}
+  );
+
+  assert.equal(conflictResult.statusCode, 409);
+  assert.equal(
+    conflictResult.payload.error,
+    "PERSON_DIRECT_VIDEO_RUN_ACTIVE"
+  );
+
+  // GET /person-dual-video-signals/runs/:id.
+  const runDetailPool = createCapturingPool([
+    {
+      match: "FROM person_direct_video_signal_runs",
+      result: {
+        rows: [
+          {
+            id: "7",
+            status: "COMPLETED",
+            summary: { videos_matched: 3 }
+          }
+        ],
+        rowCount: 1
+      }
+    }
+  ]);
+
+  const runDetailResult = await getPersonDirectVideoRun(
+    runDetailPool,
+    "7"
+  );
+
+  assert.equal(runDetailResult.statusCode, 200);
+  assert.equal(runDetailResult.payload.data.status, "COMPLETED");
+
+  const missingRunPool = createCapturingPool();
+
+  const missingRunResult = await getPersonDirectVideoRun(
+    missingRunPool,
+    "999"
+  );
+
+  assert.equal(missingRunResult.statusCode, 404);
+
+  console.log(
+    "PERSON DIRECT VIDEO RUN QUEUE TESTS PASSED"
   );
 }
 
@@ -1064,6 +1359,8 @@ async function main() {
   await run();
   runPersonDualVideoQueryValidationTests();
   await runPersonDualVideoCorrectnessTests();
+  runPersonDirectVideoRunValidationTests();
+  await runPersonDirectVideoRunQueueTests();
 }
 
 main().catch(error => {

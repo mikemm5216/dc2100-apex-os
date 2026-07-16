@@ -14,8 +14,16 @@ const {
 } = require("../../lib/news/engine");
 
 const {
+  processNextCountryEventVideoRun
+} = require("../../lib/news/country-event-video-engine");
+
+const {
   processNextPersonRadarRun
 } = require("../../lib/person/engine");
+
+const {
+  processNextPersonDirectVideoRun
+} = require("../../lib/person/person-direct-video-engine");
 
 const {
   processNextFusionRun
@@ -336,6 +344,182 @@ async function pollPersonRadarQueue() {
   }
 }
 
+// Country Event Video queue: Dashboard Refresh (POST
+// /country-dual-video-signals/run), never GET. Performs the
+// sequential per-country YouTube search and persists the
+// matched current-event video.
+async function pollCountryEventVideoQueue() {
+  try {
+    const result =
+      await processNextCountryEventVideoRun(
+        pool,
+        {
+          workerId,
+          apiKey: process.env.YOUTUBE_API_KEY,
+          onRunStarted(run) {
+            log(
+              "country_event_video_run_started",
+              {
+                run_id: String(run.id)
+              }
+            );
+          },
+          onEntityCompleted(country, state) {
+            log(
+              "country_event_video_entity_completed",
+              {
+                country_code: country.code,
+                completed_entity_count:
+                  state.completedEntityCount,
+                failed_entity_count:
+                  state.failedEntityCount
+              }
+            );
+          }
+        }
+      );
+
+    if (!result) {
+      return false;
+    }
+
+    const completionEvent =
+      result.status === "COMPLETED"
+        ? "country_event_video_run_completed"
+        : "country_event_video_run_failed";
+
+    log(
+      completionEvent,
+      {
+        run_id: result.runId,
+        status: result.status,
+        entities_attempted:
+          result.entitiesAttempted,
+        completed_entity_count:
+          result.completedEntityCount,
+        failed_entity_count:
+          result.failedEntityCount,
+        search_query_count:
+          result.searchQueryCount,
+        videos_discovered_count:
+          result.videosDiscoveredCount,
+        videos_matched_count:
+          result.videosMatchedCount,
+        no_match_entity_count:
+          result.noMatchEntityCount,
+        quota_units: result.quotaUnits
+      }
+    );
+
+    return true;
+  } catch (error) {
+    if (error?.code === "42P01") {
+      log(
+        "country_event_video_schema_waiting",
+        {
+          message:
+            "Country event video migration has not been applied yet."
+        }
+      );
+    } else {
+      logError(
+        "country_event_video_poll_failed",
+        error
+      );
+    }
+
+    return false;
+  }
+}
+
+// Person Direct Video queue: Dashboard Refresh (POST
+// /person-dual-video-signals/run), never GET. Performs the
+// sequential per-person YouTube search and persists the
+// matched Direct Mention video.
+async function pollPersonDirectVideoQueue() {
+  try {
+    const result =
+      await processNextPersonDirectVideoRun(
+        pool,
+        {
+          workerId,
+          apiKey: process.env.YOUTUBE_API_KEY,
+          onRunStarted(run) {
+            log(
+              "person_direct_video_run_started",
+              {
+                run_id: String(run.id)
+              }
+            );
+          },
+          onEntityCompleted(person, state) {
+            log(
+              "person_direct_video_entity_completed",
+              {
+                person_slug: person.slug,
+                completed_entity_count:
+                  state.completedEntityCount,
+                failed_entity_count:
+                  state.failedEntityCount
+              }
+            );
+          }
+        }
+      );
+
+    if (!result) {
+      return false;
+    }
+
+    const completionEvent =
+      result.status === "COMPLETED"
+        ? "person_direct_video_run_completed"
+        : "person_direct_video_run_failed";
+
+    log(
+      completionEvent,
+      {
+        run_id: result.runId,
+        status: result.status,
+        entities_attempted:
+          result.entitiesAttempted,
+        completed_entity_count:
+          result.completedEntityCount,
+        failed_entity_count:
+          result.failedEntityCount,
+        search_query_count:
+          result.searchQueryCount,
+        videos_discovered_count:
+          result.videosDiscoveredCount,
+        videos_matched_count:
+          result.videosMatchedCount,
+        no_match_entity_count:
+          result.noMatchEntityCount,
+        quota_units: result.quotaUnits
+      }
+    );
+
+    return true;
+  } catch (error) {
+    if (error?.code === "42P01") {
+      log(
+        "person_direct_video_schema_waiting",
+        {
+          message:
+            "Person direct video migration has not been applied yet."
+        }
+      );
+    } else {
+      logError(
+        "person_direct_video_poll_failed",
+        error
+      );
+    }
+
+    return false;
+  }
+}
+
 // Fusion queue: manual Run Now, or queued by the AutoFlow
 // poller as the FUSION step. Fusion never fetches new
 // evidence — it only aggregates what the other queues
@@ -564,6 +748,8 @@ const QUEUE_POLLERS = [
   pollVehicleScannerQueue,
   pollCountryNewsQueue,
   pollPersonRadarQueue,
+  pollCountryEventVideoQueue,
+  pollPersonDirectVideoQueue,
   pollFusionQueue,
   pollAutoFlowQueueTick,
   pollStoryQueueTick

@@ -2397,16 +2397,20 @@ export type CountryCurrentEventVideo = {
   news_source_url: string;
   event_keywords: string[];
   conflict_archetypes: string[];
-  signal_id: string;
+  signal_id: string | null;
   external_video_id: string | null;
   video_title: string;
   video_url: string;
   thumbnail_url: string | null;
   video_views: string;
   views_per_hour: string | null;
-  views_per_day: string | null;
   published_at: string | null;
+  channel_id: string | null;
   channel_title: string | null;
+  duration_seconds: number | null;
+  description_excerpt: string | null;
+  tags: string[];
+  search_query: string | null;
   relevance_evidence: Record<string, unknown>;
 };
 
@@ -2482,6 +2486,93 @@ export async function fetchCountryDualVideoSignals(
   );
 }
 
+export type DualVideoRunStatus =
+  | "QUEUED"
+  | "RUNNING"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELLED";
+
+export type DualVideoRunSummary = {
+  entities_attempted?: number;
+  search_queries?: number;
+  videos_discovered?: number;
+  videos_evaluated?: number;
+  videos_matched?: number;
+  signals_inserted?: number;
+  signals_updated?: number;
+  no_match_entities?: number;
+  quota_units?: number;
+  errors?: Array<{
+    country_code?: string;
+    person_slug?: string;
+    code?: string | null;
+    message?: string;
+  }>;
+};
+
+export type CountryEventVideoRun = {
+  id: string;
+  status: DualVideoRunStatus;
+  request_payload: {
+    window_hours?: 24 | 72 | 168;
+    format?: CountryPackFormat;
+    max_entities?: number;
+  };
+  summary: DualVideoRunSummary;
+  entities_attempted: number;
+  search_query_count: number;
+  videos_discovered_count: number;
+  videos_evaluated_count: number;
+  videos_matched_count: number;
+  signals_inserted_count: number;
+  signals_updated_count: number;
+  no_match_entity_count: number;
+  quota_units_estimated: number;
+  error_message: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type QueueCountryEventVideoRunInput = {
+  window_hours?: 24 | 72 | 168;
+  format?: CountryPackFormat;
+  max_entities?: number;
+};
+
+export async function queueCountryEventVideoRun(
+  input: QueueCountryEventVideoRunInput = {}
+): Promise<CountryEventVideoRun> {
+  const response =
+    await requestJson<DataResponse<CountryEventVideoRun>>(
+      "/country-dual-video-signals/run",
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      }
+    );
+
+  return response.data;
+}
+
+export async function fetchCountryEventVideoRun(
+  runId: string,
+  signal?: AbortSignal
+): Promise<CountryEventVideoRun> {
+  const response =
+    await requestJson<DataResponse<CountryEventVideoRun>>(
+      `/country-dual-video-signals/runs/${encodeURIComponent(runId)}`,
+      {
+        method: "GET",
+        signal,
+      }
+    );
+
+  return response.data;
+}
+
 // =========================================================
 // PERSON DUAL-VIDEO SIGNAL PACK
 // =========================================================
@@ -2527,16 +2618,21 @@ export type PersonAssociationVideo = {
 };
 
 export type PersonDirectHookVideo = {
-  signal_id: string;
+  signal_id: string | null;
   external_video_id: string | null;
   video_title: string;
   video_url: string;
   thumbnail_url: string | null;
   video_views: string;
   published_at: string | null;
+  channel_id: string | null;
   channel_title: string | null;
+  duration_seconds: number | null;
+  description_excerpt: string | null;
+  tags: string[];
+  search_query: string | null;
   matched_alias: string;
-  direct_mention_field: "TITLE" | "CHANNEL_TITLE";
+  direct_mention_field: "TITLE" | "TAGS" | "DESCRIPTION";
   direct_mention: true;
   evidence: Record<string, unknown>;
 };
@@ -2612,4 +2708,62 @@ export async function fetchPersonDualVideoSignals(
       signal,
     }
   );
+}
+
+export type PersonDirectVideoRun = {
+  id: string;
+  status: DualVideoRunStatus;
+  request_payload: {
+    max_entities?: number;
+  };
+  summary: DualVideoRunSummary;
+  entities_attempted: number;
+  search_query_count: number;
+  videos_discovered_count: number;
+  videos_evaluated_count: number;
+  videos_matched_count: number;
+  signals_inserted_count: number;
+  signals_updated_count: number;
+  no_match_entity_count: number;
+  quota_units_estimated: number;
+  error_message: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type QueuePersonDirectVideoRunInput = {
+  max_entities?: number;
+};
+
+export async function queuePersonDirectVideoRun(
+  input: QueuePersonDirectVideoRunInput = {}
+): Promise<PersonDirectVideoRun> {
+  const response =
+    await requestJson<DataResponse<PersonDirectVideoRun>>(
+      "/person-dual-video-signals/run",
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      }
+    );
+
+  return response.data;
+}
+
+export async function fetchPersonDirectVideoRun(
+  runId: string,
+  signal?: AbortSignal
+): Promise<PersonDirectVideoRun> {
+  const response =
+    await requestJson<DataResponse<PersonDirectVideoRun>>(
+      `/person-dual-video-signals/runs/${encodeURIComponent(runId)}`,
+      {
+        method: "GET",
+        signal,
+      }
+    );
+
+  return response.data;
 }
