@@ -34,6 +34,12 @@ const {
 } = require("../../../lib/person/api");
 
 const {
+  createVehiclePersonPairRun,
+  getVehiclePersonPairRun,
+  listVehiclePersonPairSignals
+} = require("../../../lib/person/vehicle-person-pair-api");
+
+const {
   createFusionRun,
   getFusionCandidateDetail,
   getFusionRun,
@@ -1469,6 +1475,31 @@ function createRequestHandler(pool) {
     } catch (error) {
       return handleDatabaseError(res, error);
     }
+  }
+
+  // =======================================================
+  // VEHICLE-PERSON JOINT PAIR SIGNALS
+  // =======================================================
+  if (req.method === "POST" && pathname === "/vehicle-person-pair-signals/run") {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (error) {
+      return sendJson(res, 400, { error: "INVALID_JSON", message: error.message });
+    }
+    try {
+      const result = await createVehiclePersonPairRun(pool, body);
+      return sendJson(res, result.statusCode, result.payload);
+    } catch (error) { return handleDatabaseError(res, error); }
+  }
+  const pairRunMatch = pathname.match(/^\/vehicle-person-pair-signals\/runs\/([0-9]+)$/);
+  if (req.method === "GET" && pairRunMatch) {
+    try { const result = await getVehiclePersonPairRun(pool, pairRunMatch[1]); return sendJson(res,result.statusCode,result.payload); }
+    catch(error){ return handleDatabaseError(res,error); }
+  }
+  if (req.method === "GET" && pathname === "/vehicle-person-pair-signals") {
+    try { const result = await listVehiclePersonPairSignals(pool,requestUrl.searchParams); return sendJson(res,result.statusCode,result.payload); }
+    catch(error){ return handleDatabaseError(res,error); }
   }
 
   // =======================================================

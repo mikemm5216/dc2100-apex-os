@@ -1,484 +1,134 @@
 const assert = require("node:assert/strict");
+const { processNextFusionRun } = require("../lib/fusion/engine");
 
-const {
-  NO_QUALIFIED_VEHICLE_TRAFFIC_ERROR,
-  processNextFusionRun
-} = require("../lib/fusion/engine");
-
-// ---------------------------------------------------------
-// In-memory mock database. Dispatches on SQL text
-// substrings, exactly the pattern used by
-// scripts/test-person-worker.js and
-// scripts/test-country-news-worker.js — no real Postgres
-// connection is required.
-// ---------------------------------------------------------
-
-function createMockDb({ run, vehicles, newsByCountry, linksByBrand }) {
+function createMockDb({ run, pairs, newsByCountry }) {
   const state = {
     run: { ...run, status: "QUEUED" },
-    candidates: new Map(),
-    nextCandidateId: 1,
-
-    // Proves the transaction wrapper and the claim/run
-    // lifecycle actually ran, without weakening the
-    // production BEGIN / SELECT ... FOR UPDATE SKIP LOCKED
-    // / UPDATE / COMMIT / ROLLBACK sequence in
-    // lib/fusion/engine.js.
-    transactionLog: [],
-    statusHistory: ["QUEUED"]
+    candidates: [],
+    statusHistory: ["QUEUED"],
+    transactionLog: []
   };
-
-  function setRunStatus(nextStatus) {
-    state.run.status = nextStatus;
-    state.statusHistory.push(nextStatus);
-  }
-
-  function candidateKey(values) {
-    // run_id, vehicle_id, country_news_signal_id, person_id
-    return [
-      values[0],
-      values[1],
-      values[3],
-      values[4] ?? "-1"
-    ].join("::");
-  }
-
   async function query(sql, values = []) {
-    // Transaction control statements are single-word
-    // client.query() calls issued by claimNextFusionRun's
-    // BEGIN / COMMIT / ROLLBACK — they carry no rows and
-    // must never fall through to the "unexpected query"
-    // guard below.
-    const normalizedSql = String(sql).trim().toUpperCase();
-
-    if (
-      normalizedSql === "BEGIN" ||
-      normalizedSql === "COMMIT" ||
-      normalizedSql === "ROLLBACK"
-    ) {
-      state.transactionLog.push(normalizedSql);
+    const normalized = String(sql).trim().toUpperCase();
+    if (["BEGIN", "COMMIT", "ROLLBACK"].includes(normalized)) {
+      state.transactionLog.push(normalized);
       return { rows: [], rowCount: 0 };
     }
-
-    if (
-      sql.includes("FROM fusion_runs") &&
-      sql.includes("status = 'QUEUED'")
-    ) {
-      if (state.run.status !== "QUEUED") {
-        return { rows: [], rowCount: 0 };
-      }
-      return {
-        rows: [
-          {
-            id: state.run.id,
-            request_payload: state.run.request_payload
-          }
-        ],
-        rowCount: 1
-      };
+    if (sql.includes("FROM fusion_runs") && sql.includes("status = 'QUEUED'")) {
+      return state.run.status === "QUEUED"
+        ? { rows: [{ id: state.run.id, request_payload: state.run.request_payload }], rowCount: 1 }
+        : { rows: [], rowCount: 0 };
     }
-
-    if (
-      sql.includes("UPDATE fusion_runs") &&
-      sql.includes("status = 'RUNNING'")
-    ) {
-      setRunStatus("RUNNING");
+    if (sql.includes("UPDATE fusion_runs") && sql.includes("status = 'RUNNING'")) {
+      state.run.status = "RUNNING";
+      state.statusHistory.push("RUNNING");
       return { rows: [], rowCount: 1 };
     }
-
-    // Vehicle traffic anchors.
-    if (sql.includes("ranked AS")) {
-      return { rows: vehicles, rowCount: vehicles.length };
+    if (sql.includes("FROM vehicle_person_pair_signals ps")) {
+      return { rows: pairs, rowCount: pairs.length };
     }
-
-    // Eligible country news.
+    if (sql.includes("UPDATE fusion_runs SET pair_run_id")) {
+      state.run.pairRunId = values[0];
+      return { rows: [], rowCount: 1 };
+    }
     if (sql.includes("FROM country_news_signals")) {
-      const countryId = values[0];
-      const rows = newsByCountry[countryId] || [];
+      const rows = newsByCountry[String(values[0])] || [];
       return { rows, rowCount: rows.length };
     }
-
-    // Eligible person links.
-    if (
-      sql.includes("FROM vehicle_person_links vpl") &&
-      sql.includes("JOIN person_traffic_signals pts")
-    ) {
-      const brand = String(values[0]).replace(/%/g, "");
-      const rows = linksByBrand[brand] || [];
-      return { rows, rowCount: rows.length };
-    }
-
-    // Candidate upsert.
     if (sql.includes("INSERT INTO vehicle_fusion_candidates")) {
-      const key = candidateKey(values);
-      const existing = state.candidates.get(key);
-
-      if (existing) {
-        return { rows: [{ id: existing.id, inserted: false }], rowCount: 1 };
-      }
-
-      const id = state.nextCandidateId++;
-      state.candidates.set(key, { id, values });
-      return { rows: [{ id, inserted: true }], rowCount: 1 };
+      state.candidates.push(values);
+      return { rows: [{ id: state.candidates.length, inserted: true }], rowCount: 1 };
     }
-
-    // Run progress / finalize (both UPDATE fusion_runs, no
-    // status literal — progress omits status; finalize
-    // sets it explicitly as $1).
-    if (
-      sql.includes("UPDATE fusion_runs") &&
-      sql.includes("status = $1")
-    ) {
-      setRunStatus(values[0]);
-      state.run.finalSummary = JSON.parse(values[7]);
+    if (sql.includes("UPDATE fusion_runs") && sql.includes("status = $1")) {
+      state.run.status = values[0];
+      state.statusHistory.push(values[0]);
       return { rows: [], rowCount: 1 };
     }
-
-    if (
-      sql.includes("UPDATE fusion_runs") &&
-      sql.includes("vehicle_count = $1")
-    ) {
+    if (sql.includes("UPDATE fusion_runs") && sql.includes("vehicle_count = $1")) {
       return { rows: [], rowCount: 1 };
     }
-
-    // failFusionRun(): the no-qualified-traffic and
-    // uncaught-error paths persist FAILED directly (literal
-    // status = 'FAILED'), separate from finalizeRun()'s
-    // parameterized status = $1 above.
-    if (
-      sql.includes("UPDATE fusion_runs") &&
-      sql.includes("status = 'FAILED'") &&
-      sql.includes("error_message = $1")
-    ) {
-      setRunStatus("FAILED");
+    if (sql.includes("UPDATE fusion_runs") && sql.includes("status = 'FAILED'")) {
+      state.run.status = "FAILED";
+      state.statusHistory.push("FAILED");
       state.run.errorMessage = values[0];
-
-      return {
-        rows: [],
-        rowCount: 1
-      };
+      return { rows: [], rowCount: 1 };
     }
-
-    throw new Error(
-      `Unexpected fusion query: ${sql.slice(0, 120)}`
-    );
+    throw new Error(`Unexpected fusion query: ${sql.slice(0, 120)}`);
   }
-
-  return { query, connect: null, state };
-}
-
-// A pool.connect()-based client is needed for
-// claimNextFusionRun's BEGIN/COMMIT transaction.
-function wrapAsPool(mockDb) {
   return {
-    query: mockDb.query,
-    async connect() {
-      return {
-        query: mockDb.query,
-        release() {}
-      };
-    }
+    state,
+    query,
+    async connect() { return { query, release() {} }; }
   };
 }
 
-const GR86 = {
-  vehicle_id: "1",
-  vehicle_code: "GR86",
-  vehicle_name: "Toyota GR86",
-  country_id: "10",
-  country_code: "JP",
-  country_name: "Japan",
-  vehicle_brand: "Toyota",
-  vehicle_series: "GR",
-  vehicle_model: "GR86",
-  representative_viral_tier: "PROVEN",
-  qualified_vehicle_signal_count: 5,
-  vehicle_views_total: "4000000",
-  vehicle_views_max: "1500000"
-};
+function pair(overrides = {}) {
+  return {
+    id: "501", run_id: "77", vehicle_id: "1", vehicle_code: "GR86",
+    vehicle_name: "Toyota GR86", vehicle_brand: "Toyota",
+    vehicle_country_id: "10", vehicle_country_code: "JP",
+    person_id: "22", canonical_name: "Test Driver",
+    person_country_id: "20", person_country_code: "US",
+    person_country_name: "United States", vehicle_person_link_id: "301",
+    pair_status: "PROVEN_PAIR", pair_specificity: "EXACT_MODEL",
+    cross_country_pair: true, vehicle_anchor_views: "900000",
+    joint_video_id: "joint-1", joint_video_views: "700000",
+    link_confidence: 0.9, evidence_horizon: "TEN_YEARS",
+    historical_resonance_score: 80, historical_resonance_tier: "ICONIC",
+    person_traffic_score: 70, person_transformation_potential: 60,
+    ...overrides
+  };
+}
 
-const MUSTANG = {
-  vehicle_id: "2",
-  vehicle_code: "MUSTANG",
-  vehicle_name: "Ford Mustang",
-  country_id: "20",
-  country_code: "US",
-  country_name: "United States",
-  vehicle_brand: "Ford",
-  vehicle_series: "Mustang",
-  vehicle_model: "Mustang GT",
-  representative_viral_tier: "RISING",
-  qualified_vehicle_signal_count: 3,
-  vehicle_views_total: "900000",
-  vehicle_views_max: "400000"
+const news = {
+  id: "901", category: "TRADE",
+  conflict_archetypes: ["RESOURCE_SCARCITY"],
+  traffic_score: 80, transformation_potential: 50
 };
 
 async function run() {
-  // -------------------------------------------------------
-  // Case 1: vehicle with 2 news signals and 2 eligible
-  // person links produces 4 candidates (cross product), a
-  // vehicle with no country-matched news is skipped
-  // entirely (NO_COUNTRY_NEWS_SIGNAL) and produces zero
-  // candidates.
-  // -------------------------------------------------------
-
-  const mockDb = createMockDb({
-    run: {
-      id: 1,
-      request_payload: {}
-    },
-    vehicles: [GR86, MUSTANG],
-    newsByCountry: {
-      10: [
-        {
-          id: "901",
-          category: "ENERGY",
-          conflict_archetypes: ["RESOURCE_SCARCITY"],
-          traffic_score: 80,
-          transformation_potential: 50
-        },
-        {
-          id: "902",
-          category: "TRADE",
-          conflict_archetypes: [],
-          traffic_score: 60,
-          transformation_potential: 30
-        }
-      ]
-      // country 20 (US, Mustang) has no eligible news.
-    },
-    linksByBrand: {
-      Toyota: [
-        {
-          link_id: "701",
-          person_id: "501",
-          vehicle_id: "1",
-          vehicle_brand: "Toyota",
-          vehicle_series: "GR",
-          vehicle_model: "GR86",
-          link_confidence: 0.85,
-          evidence_horizon: "ALL_TIME",
-          historical_resonance_score: 90,
-          historical_resonance_tier: "ICONIC",
-          person_traffic_score: 70,
-          person_transformation_potential: 60
-        },
-        {
-          link_id: "702",
-          person_id: "502",
-          vehicle_id: null,
-          vehicle_brand: "Toyota",
-          vehicle_series: "GR",
-          vehicle_model: "GR Corolla",
-          link_confidence: 0.75,
-          evidence_horizon: "TEN_YEARS",
-          historical_resonance_score: 65,
-          historical_resonance_tier: "RECOGNIZABLE",
-          person_traffic_score: 40,
-          person_transformation_potential: 35
-        }
-      ]
-    }
+  const db = createMockDb({
+    run: { id: 1, request_payload: { pair_run_id: "77", max_vehicles: 10 } },
+    pairs: [pair()], newsByCountry: { "20": [news] }
   });
-
-  const pool = wrapAsPool(mockDb);
-
-  const result = await processNextFusionRun(pool, {
-    workerId: "test-worker"
-  });
-
-  assert.ok(result, "A queued run must be claimed.");
-
-  // -------------------------------------------------------
-  // Claim + transaction lifecycle: proves (1) the run was
-  // claimed from QUEUED, (2) status transitioned to
-  // RUNNING before the finalize step, (3) the run completed
-  // through the normal path, and (4) the production
-  // BEGIN / SELECT ... FOR UPDATE SKIP LOCKED / UPDATE /
-  // COMMIT transaction sequence executed without triggering
-  // the mock's "unexpected query" guard.
-  // -------------------------------------------------------
-
-  assert.deepEqual(mockDb.state.statusHistory, [
-    "QUEUED",
-    "RUNNING",
-    "COMPLETED"
-  ]);
-
-  assert.deepEqual(mockDb.state.transactionLog, [
-    "BEGIN",
-    "COMMIT"
-  ]);
-
+  const result = await processNextFusionRun(db, { workerId: "test-worker" });
   assert.equal(result.status, "COMPLETED");
-  assert.equal(result.vehicleCount, 2);
-  assert.equal(result.completedVehicleCount, 1);
-  assert.equal(
-    result.skippedVehicleCount,
-    1,
-    "Mustang has no country-matched news and must be skipped."
-  );
+  assert.deepEqual(db.state.transactionLog, ["BEGIN", "COMMIT"]);
+  assert.deepEqual(db.state.statusHistory, ["QUEUED", "RUNNING", "COMPLETED"]);
+  assert.equal(result.candidateCount, 1);
+  const values = db.state.candidates[0];
+  assert.equal(values[1], "1", "vehicle_id is preserved");
+  assert.equal(values[2], "20", "country_id must bind to the person's country");
+  assert.equal(values[4], "22", "person_id can never be null");
+  assert.equal(values[26], "501", "pair signal lineage is persisted");
+  assert.equal(values[27], "77", "pair run lineage is persisted");
+  assert.equal(values[28], "joint-1");
+  assert.equal(values[32], "20");
+  assert.equal(values[33], "10");
+  assert.equal(values[34], true);
+  assert.equal(values[35], "PERSON_COUNTRY");
 
-  // GR86: 2 news x 2 people = 4 candidates. Mustang: 0.
-  assert.equal(result.candidateCount, 4);
-  assert.equal(result.candidateInsertedCount, 4);
-
-  const skipError = result.errors.find(
-    item => item.code === "NO_COUNTRY_NEWS_SIGNAL"
-  );
-
-  assert.ok(skipError, "Skip reason must be persisted.");
-  assert.equal(skipError.vehicle_code, "MUSTANG");
-
-  // Tier accounting: link 701 has vehicle_id = GR86's own
-  // id => EXACT_VEHICLE. Link 702 has no vehicle_id, and
-  // its vehicle_model ("GR Corolla") does NOT match the
-  // target vehicle's model ("GR86") — only vehicle_brand
-  // ("Toyota") and vehicle_series ("GR") match => SAME_SERIES.
-  // Each link is crossed with both of GR86's 2 eligible news
-  // signals, so each tier appears exactly twice.
-  assert.equal(result.exactVehicleCount, 2);
-  assert.equal(result.sameSeriesCount, 2);
-  assert.equal(result.sameBrandCount, 0);
-  assert.equal(result.noPersonSignalCount, 0);
-
-  // Two distinct people (501, 502) were used, and each
-  // resolves to its documented tier across both candidate
-  // rows it appears in.
-  const insertedCandidates = [
-    ...mockDb.state.candidates.values()
-  ].map(entry => entry.values);
-
-  const personIds = new Set(
-    insertedCandidates.map(values => values[4])
-  );
-
-  assert.deepEqual(
-    [...personIds].sort(),
-    ["501", "502"],
-    "Both eligible people must produce candidates."
-  );
-
-  const link701Candidates = insertedCandidates.filter(
-    values => String(values[4]) === "501"
-  );
-  const link702Candidates = insertedCandidates.filter(
-    values => String(values[4]) === "502"
-  );
-
-  assert.equal(link701Candidates.length, 2);
-  assert.equal(link702Candidates.length, 2);
-
-  for (const values of link701Candidates) {
-    assert.equal(
-      values[6],
-      "EXACT_VEHICLE",
-      "Link 701 (vehicle_id match) must resolve as EXACT_VEHICLE."
-    );
-  }
-
-  for (const values of link702Candidates) {
-    assert.equal(
-      values[6],
-      "SAME_SERIES",
-      "Link 702 (same series, different model) must resolve as SAME_SERIES."
-    );
-  }
-
-  // -------------------------------------------------------
-  // Case 2: re-running the identical evidence upserts
-  // rather than duplicating (uniqueness on run_id,
-  // vehicle_id, country_news_signal_id, person_id).
-  // -------------------------------------------------------
-
-  mockDb.state.run.status = "QUEUED";
-
-  const rerun = await processNextFusionRun(pool, {
-    workerId: "test-worker"
+  const noNewsDb = createMockDb({
+    run: { id: 2, request_payload: { pair_run_id: "77" } },
+    pairs: [pair()], newsByCountry: { "10": [news] }
   });
+  const noNews = await processNextFusionRun(noNewsDb, { workerId: "test-worker" });
+  assert.equal(noNews.status, "FAILED");
+  assert.equal(noNews.candidateCount, 0);
+  assert.equal(noNewsDb.state.candidates.length, 0, "vehicle-country news must not be used as fallback");
+  assert.equal(noNews.errors[0].code, "NO_PERSON_COUNTRY_NEWS");
 
-  assert.equal(rerun.candidateCount, 4);
-  assert.equal(
-    rerun.candidateInsertedCount,
-    0,
-    "Identical evidence must upsert, not insert new rows."
-  );
-  assert.equal(rerun.candidateUpdatedCount, 4);
-
-  // -------------------------------------------------------
-  // Case 3: a vehicle with eligible news but NO eligible
-  // person still produces candidates, marked
-  // NO_PERSON_SIGNAL — it is not skipped.
-  // -------------------------------------------------------
-
-  const soloDb = createMockDb({
-    run: { id: 2, request_payload: {} },
-    vehicles: [MUSTANG],
-    newsByCountry: {
-      20: [
-        {
-          id: "903",
-          category: "SANCTIONS_TRADE",
-          conflict_archetypes: [],
-          traffic_score: 55,
-          transformation_potential: 45
-        }
-      ]
-    },
-    linksByBrand: {}
+  const noPairDb = createMockDb({
+    run: { id: 3, request_payload: { pair_run_id: "77" } },
+    pairs: [], newsByCountry: {}
   });
-
-  const soloResult = await processNextFusionRun(
-    wrapAsPool(soloDb),
-    { workerId: "test-worker" }
-  );
-
-  assert.equal(soloResult.status, "COMPLETED");
-  assert.equal(soloResult.skippedVehicleCount, 0);
-  assert.equal(soloResult.candidateCount, 1);
-  assert.equal(soloResult.noPersonSignalCount, 1);
-
-  // -------------------------------------------------------
-  // Case 4: no qualified vehicle traffic at all => FAILED
-  // with the documented error code, never silently empty.
-  // -------------------------------------------------------
-
-  const emptyDb = createMockDb({
-    run: { id: 3, request_payload: {} },
-    vehicles: [],
-    newsByCountry: {},
-    linksByBrand: {}
-  });
-
-  const emptyResult = await processNextFusionRun(
-    wrapAsPool(emptyDb),
-    { workerId: "test-worker" }
-  );
-
-  assert.equal(emptyResult.status, "FAILED");
-  assert.equal(
-    emptyResult.errorCode,
-    NO_QUALIFIED_VEHICLE_TRAFFIC_ERROR
-  );
-
-  // failFusionRun() must actually persist FAILED with the
-  // error code as error_message — not merely return a
-  // FAILED status in memory.
-  assert.equal(emptyDb.state.run.status, "FAILED");
-  assert.equal(
-    emptyDb.state.run.errorMessage,
-    NO_QUALIFIED_VEHICLE_TRAFFIC_ERROR
-  );
-  assert.deepEqual(emptyDb.state.statusHistory, [
-    "QUEUED",
-    "RUNNING",
-    "FAILED"
-  ]);
-
-  console.log("TASK 3.3F FUSION WORKER TESTS PASSED");
+  const noPair = await processNextFusionRun(noPairDb, { workerId: "test-worker" });
+  assert.equal(noPair.status, "FAILED");
+  assert.match(noPairDb.state.run.errorMessage, /NO_VEHICLE_PERSON_PAIR_SIGNALS/);
+  console.log("VEHICLE-PERSON PAIR FUSION WORKER TESTS PASSED");
 }
 
 run().catch(error => {
   console.error(error);
-  process.exit(1);
+  process.exitCode = 1;
 });
