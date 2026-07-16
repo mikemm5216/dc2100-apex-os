@@ -14,6 +14,7 @@ const {
   withStageOwnership
 } = require("../lib/story/engine");
 const { CanonError } = require("../lib/story/canon");
+const { isIntegratedScriptCoverage } = require("../lib/story/schemas");
 
 // ---------------------------------------------------------
 // No real Postgres connection is used anywhere in this file.
@@ -405,7 +406,10 @@ function createMockStoryPool(initialRows, { directions = [], outlines = [] } = {
     }
 
     if (trimmed.startsWith("INSERT INTO story_outlines")) {
-      const [runId, version, payload, validationStatus, validationIssues] = values;
+      const [
+        runId, version, payload, validationStatus, validationIssues,
+        signalContributions, coverageStatus, sourceDirectionIds, lockedBeatId
+      ] = values;
       const id = state.nextOutlineId++;
       state.outlines.set(id, {
         id,
@@ -414,6 +418,10 @@ function createMockStoryPool(initialRows, { directions = [], outlines = [] } = {
         payload: JSON.parse(payload),
         validation_status: validationStatus,
         validation_issues: JSON.parse(validationIssues),
+        signal_contributions: signalContributions ? JSON.parse(signalContributions) : null,
+        coverage_status: coverageStatus ? JSON.parse(coverageStatus) : null,
+        source_direction_ids: sourceDirectionIds ? JSON.parse(sourceDirectionIds) : [],
+        locked_beat_id: lockedBeatId || null,
         locked_by: null,
         locked_at: null,
         superseded_at: null,
@@ -423,7 +431,11 @@ function createMockStoryPool(initialRows, { directions = [], outlines = [] } = {
     }
 
     if (trimmed.startsWith("INSERT INTO story_scripts")) {
-      const [runId, version, variantType, payload, wordCount, duration, validationStatus, validationIssues] = values;
+      const [
+        runId, version, variantType, payload, wordCount, duration,
+        validationStatus, validationIssues,
+        signalContributions, coverageStatus, sourceOutlineId, lockedBeatId
+      ] = values;
       const id = state.nextScriptId++;
       state.scripts.set(id, {
         id,
@@ -435,6 +447,10 @@ function createMockStoryPool(initialRows, { directions = [], outlines = [] } = {
         estimated_duration_seconds: duration,
         validation_status: validationStatus,
         validation_issues: JSON.parse(validationIssues),
+        signal_contributions: signalContributions ? JSON.parse(signalContributions) : null,
+        coverage_status: coverageStatus ? JSON.parse(coverageStatus) : null,
+        source_outline_id: sourceOutlineId ? Number(sourceOutlineId) : null,
+        locked_beat_id: lockedBeatId || null,
         locked_by: null,
         locked_at: null,
         superseded_at: null,
@@ -1821,6 +1837,644 @@ async function run() {
   }
 
   console.log("TASK 3.4E STORY WORKER TESTS PASSED");
+
+  // =========================================================
+  // Task 3.6: Outline/Script coverage inheritance, persistence,
+  // and validator-guided retry.
+  // =========================================================
+
+  function makeOutlinePayload(overrides = {}) {
+    const long = "A".repeat(100);
+    return {
+      outline_title: "T",
+      review_summary: "s",
+      opening_situation: long,
+      inciting_incident: long,
+      vehicle_and_driver_introduction: long,
+      world_conflict: long,
+      qualifier_challenge: long,
+      escalation: long,
+      choice_or_sacrifice: long,
+      outcome: long,
+      canon_state_impact: {
+        state: "PROPOSED_STATE_CHANGE",
+        target_state: "QUALIFIER_ENTERED",
+        entity_type: "DRIVER",
+        previous_state: "CANDIDATE_APPROVED",
+        evidence_refs: ["vehicle:9"],
+        reason: "r"
+      },
+      next_episode_hook: long,
+      evidence_map: ["vehicle:9"],
+      canon_constraints: [],
+      forbidden_elements_respected: [],
+      short_structure: {
+        hook_seconds: 3,
+        estimated_duration_seconds: 35,
+        narrative_beats: ["b"]
+      },
+      ...overrides
+    };
+  }
+
+  function makeFullCoverageOutlinePayload(overrides = {}) {
+    return makeOutlinePayload({
+      evidence_map: [
+        "vehicle:9",
+        "country_news:413",
+        "person:13",
+        "historical_resonance:13"
+      ],
+      ...overrides
+    });
+  }
+
+  // Outline inherits signal_contributions/coverage_status from the
+  // one selected direction (SINGLE mode) and persists them alongside
+  // the generated narrative, rather than re-asking Gemini for them.
+  {
+    const pool = createMockStoryPool(
+      [
+        regressionRunRow({
+          status: "GENERATING_OUTLINE",
+          selected_direction_ids: ["2000"],
+          selection_mode: "SINGLE"
+        })
+      ],
+      {
+        directions: [
+          {
+            id: 2000,
+            story_run_id: 1,
+            version: 1,
+            direction_key: "DIR-001",
+            direction_type: "INTEGRATED_STORY",
+            payload: makeRegressionDirection(),
+            validation_status: "PASS",
+            validation_issues: [],
+            superseded_at: null,
+            created_at: new Date()
+          }
+        ]
+      }
+    );
+
+    const result = await executeOutlineGeneration(
+      pool,
+      pool._state.runs.get(1),
+      {
+        loadCanonBundle: () => FAKE_CANON_BUNDLE,
+        generateJson: async () => ({
+          data: makeFullCoverageOutlinePayload(),
+          provider: "gemini",
+          model: "test-model",
+          inputTokens: 1,
+          outputTokens: 1,
+          totalTokens: 2,
+          latencyMs: 10
+        })
+      }
+    );
+
+    assert.equal(result.outcome, "STAGE_ADVANCED");
+
+    const outline = [...pool._state.outlines.values()][0];
+    assert.equal(outline.validation_status, "PASS");
+    assert.deepEqual(outline.source_direction_ids, ["2000"]);
+    assert.equal(outline.locked_beat_id, "BEAT-04");
+    assert.equal(outline.coverage_status.country_signal, "USED");
+    assert.deepEqual(outline.signal_contributions.vehicle.evidence_refs, ["vehicle:9"]);
+  }
+
+  // An outline that silently drops an inherited USED layer is
+  // BLOCKED (OUTLINE_COVERAGE_DROPPED), retried with feedback, and
+  // the corrected next attempt PASSes -- mirroring Directions'
+  // validator-guided retry loop.
+  {
+    const pool = createMockStoryPool(
+      [
+        regressionRunRow({
+          status: "GENERATING_OUTLINE",
+          selected_direction_ids: ["2001"],
+          selection_mode: "SINGLE"
+        })
+      ],
+      {
+        directions: [
+          {
+            id: 2001,
+            story_run_id: 1,
+            version: 1,
+            direction_key: "DIR-001",
+            direction_type: "INTEGRATED_STORY",
+            payload: makeRegressionDirection(),
+            validation_status: "PASS",
+            validation_issues: [],
+            superseded_at: null,
+            created_at: new Date()
+          }
+        ]
+      }
+    );
+
+    let call = 0;
+    const providerInputs = [];
+
+    const result = await executeOutlineGeneration(
+      pool,
+      pool._state.runs.get(1),
+      {
+        loadCanonBundle: () => FAKE_CANON_BUNDLE,
+        generateJson: async ({ input }) => {
+          call += 1;
+          providerInputs.push(input);
+
+          const data =
+            call === 1
+              ? makeOutlinePayload({ evidence_map: ["vehicle:9"] })
+              : makeFullCoverageOutlinePayload();
+
+          return {
+            data,
+            provider: "gemini",
+            model: "test-model",
+            inputTokens: 1,
+            outputTokens: 1,
+            totalTokens: 2,
+            latencyMs: 10
+          };
+        }
+      }
+    );
+
+    assert.equal(call, 2);
+    assert.equal(result.outcome, "STAGE_ADVANCED");
+    assert.ok(
+      providerInputs[1].retry_feedback.validation_issues.some(
+        issue => issue.code === "OUTLINE_COVERAGE_DROPPED"
+      )
+    );
+
+    const outline = [...pool._state.outlines.values()].find(
+      o => o.story_run_id === 1
+    );
+    assert.equal(outline.validation_status, "PASS");
+  }
+
+  // Scripts forward-propagate signal_contributions/coverage_status
+  // verbatim from the locked outline onto all three variants.
+  {
+    const lockedOutlinePayload = makeFullCoverageOutlinePayload();
+    const regressionDirection = makeRegressionDirection();
+
+    const pool = createMockStoryPool(
+      [regressionRunRow({ status: "GENERATING_SCRIPTS" })],
+      {
+        outlines: [
+          {
+            id: 700,
+            story_run_id: 1,
+            version: 1,
+            payload: lockedOutlinePayload,
+            validation_status: "PASS",
+            validation_issues: [],
+            signal_contributions: regressionDirection.signal_contributions,
+            coverage_status: regressionDirection.coverage_status,
+            source_direction_ids: ["2000"],
+            locked_beat_id: "BEAT-04",
+            locked_by: "michael",
+            locked_at: new Date(),
+            superseded_at: null,
+            created_at: new Date()
+          }
+        ]
+      }
+    );
+
+    const fullEvidence = [
+      "vehicle:9",
+      "country_news:413",
+      "person:13",
+      "historical_resonance:13"
+    ];
+
+    function makeScriptVariant(variantType) {
+      return {
+        variant_type: variantType,
+        title: "T",
+        hook: "h",
+        hook_type: "action",
+        vo_text: new Array(90).fill("word").join(" "),
+        ending_hook: "eh",
+        estimated_duration_seconds: 33,
+        shots: [1, 2, 3, 4, 5, 6].map(n => ({
+          shot_no: n,
+          duration_seconds: n === 1 ? 3 : 6,
+          visual: `v${n}`,
+          voiceover: `vo${n}`,
+          evidence_refs: fullEvidence
+        })),
+        evidence_map: fullEvidence,
+        canon_constraints: [],
+        ip_safety_notes: [],
+        risk_flags: [],
+        proposed_state_changes: []
+      };
+    }
+
+    // Task 3.6 fix: Gemini's structured-output engine rejects a
+    // schema wrapped in an array once minItems/maxItems >= 3 (the
+    // real Live Acceptance failure this fix targets -- Scripts came
+    // back HTTP 400 before any response/validation). Each of the
+    // three variants is now requested via its own single-script
+    // Gemini call, mirroring how Directions already works around the
+    // same limit -- so the mock here returns ONE script keyed off
+    // `input.target_variant_type`, not a `{ scripts: [...] }` batch.
+    const requestedVariants = [];
+    const schemasSeen = [];
+    const promptsSeen = [];
+
+    const result = await executeScriptsGeneration(
+      pool,
+      pool._state.runs.get(1),
+      {
+        loadCanonBundle: () => FAKE_CANON_BUNDLE,
+        generateJson: async ({ input, systemPrompt, responseJsonSchema }) => {
+          requestedVariants.push(input.target_variant_type);
+          schemasSeen.push(responseJsonSchema);
+          promptsSeen.push(systemPrompt);
+
+          return {
+            data: makeScriptVariant(input.target_variant_type),
+            provider: "gemini",
+            model: "test-model",
+            inputTokens: 1,
+            outputTokens: 1,
+            totalTokens: 2,
+            latencyMs: 10
+          };
+        }
+      }
+    );
+
+    assert.equal(result.outcome, "STAGE_ADVANCED");
+
+    // Requirements 1-2: exactly three calls, requesting exactly the
+    // three required variant types, in order.
+    assert.equal(requestedVariants.length, 3, "generateJson must be called exactly 3 times when every variant passes on its first attempt");
+    assert.deepEqual(requestedVariants, ["VEHICLE_FIRST", "WORLD_FIRST", "CHARACTER_FIRST"]);
+
+    // Requirements 3-4: every call receives a single-script schema
+    // (no `scripts` array wrapper), constrained to exactly that
+    // call's target variant.
+    for (const [index, schema] of schemasSeen.entries()) {
+      assert.equal(schema.properties.scripts, undefined, "must never send the three-item batch schema to Gemini");
+      assert.ok(schema.properties.variant_type, "must send a single-script schema with its own variant_type property");
+      assert.deepEqual(
+        schema.properties.variant_type.enum,
+        [requestedVariants[index]],
+        "each call's schema must constrain variant_type to exactly that call's target variant"
+      );
+    }
+
+    // Requirement 5: each prompt says it produces one Script and
+    // names its own target variant.
+    for (const [index, prompt] of promptsSeen.entries()) {
+      assert.ok(prompt.includes("produce EXACTLY ONE Script"));
+      assert.ok(prompt.includes(`"${requestedVariants[index]}"`));
+    }
+
+    const scripts = [...pool._state.scripts.values()];
+    assert.equal(scripts.length, 3);
+
+    for (const script of scripts) {
+      assert.equal(script.validation_status, "PASS");
+      assert.equal(script.source_outline_id, 700);
+      assert.equal(script.locked_beat_id, "BEAT-04");
+      assert.deepEqual(script.coverage_status, regressionDirection.coverage_status);
+    }
+  }
+
+  // =========================================================
+  // Review fix: a Script batch is validated as a unit -- each variant
+  // is now generated and retried INDEPENDENTLY (a failed VEHICLE_FIRST
+  // retries only VEHICLE_FIRST, never regenerating an
+  // already-successful WORLD_FIRST/CHARACTER_FIRST), but the FINAL
+  // three results are still cross-validated as a batch before
+  // persistence (see validateScriptBatchWithContext in
+  // executeScriptsGeneration). If that final batch check fails --
+  // including because one variant exhausted its retries still
+  // BLOCKED -- NO row may be persisted as PASS, not even one whose own
+  // shape/content happened to validate cleanly on its own, since the
+  // batch is the unit of lockable validity.
+  // =========================================================
+
+  const FULL_EVIDENCE_REFS = [
+    "vehicle:9",
+    "country_news:413",
+    "person:13",
+    "historical_resonance:13"
+  ];
+
+  function makeBatchFixtureScriptVariant(variantType, { evidenceRefs = FULL_EVIDENCE_REFS } = {}) {
+    return {
+      variant_type: variantType,
+      title: "T",
+      hook: "h",
+      hook_type: "action",
+      vo_text: new Array(90).fill("word").join(" "),
+      ending_hook: "eh",
+      estimated_duration_seconds: 33,
+      shots: [1, 2, 3, 4, 5, 6].map(n => ({
+        shot_no: n,
+        duration_seconds: n === 1 ? 3 : 6,
+        visual: `v${n}`,
+        voiceover: `vo${n}`,
+        evidence_refs: evidenceRefs
+      })),
+      evidence_map: evidenceRefs,
+      canon_constraints: [],
+      ip_safety_notes: [],
+      risk_flags: [],
+      proposed_state_changes: []
+    };
+  }
+
+  function makeBatchFixtureLockedOutlineRow(id = 700) {
+    const regressionDirection = makeRegressionDirection();
+    return {
+      id,
+      story_run_id: 1,
+      version: 1,
+      payload: makeFullCoverageOutlinePayload(),
+      validation_status: "PASS",
+      validation_issues: [],
+      signal_contributions: regressionDirection.signal_contributions,
+      coverage_status: regressionDirection.coverage_status,
+      source_direction_ids: ["2000"],
+      locked_beat_id: "BEAT-04",
+      locked_by: "michael",
+      locked_at: new Date(),
+      superseded_at: null,
+      created_at: new Date()
+    };
+  }
+
+  // Case 1 -- VEHICLE_FIRST fails validation on its first two
+  // attempts (dropped evidence, same SCRIPT_COVERAGE_DROPPED failure
+  // mode as before) then passes on its third and final attempt.
+  // WORLD_FIRST and CHARACTER_FIRST both pass on their first attempt.
+  // Retrying VEHICLE_FIRST must never regenerate the already-
+  // successful variants.
+  {
+    const pool = createMockStoryPool(
+      [regressionRunRow({ status: "GENERATING_SCRIPTS" })],
+      { outlines: [makeBatchFixtureLockedOutlineRow(700)] }
+    );
+
+    const callsByVariant = { VEHICLE_FIRST: 0, WORLD_FIRST: 0, CHARACTER_FIRST: 0 };
+
+    const result = await executeScriptsGeneration(
+      pool,
+      pool._state.runs.get(1),
+      {
+        loadCanonBundle: () => FAKE_CANON_BUNDLE,
+        generateJson: async ({ input }) => {
+          const variant = input.target_variant_type;
+          callsByVariant[variant] += 1;
+
+          // Drops historical_resonance:13 -- inherited
+          // coverage_status.historical_resonance is USED, so this
+          // fails SCRIPT_COVERAGE_DROPPED -- but only on VEHICLE_FIRST's
+          // first two attempts.
+          const evidenceRefs =
+            variant === "VEHICLE_FIRST" && callsByVariant[variant] < 3
+              ? ["vehicle:9", "country_news:413", "person:13"]
+              : FULL_EVIDENCE_REFS;
+
+          return {
+            data: makeBatchFixtureScriptVariant(variant, { evidenceRefs }),
+            provider: "gemini",
+            model: "test-model",
+            inputTokens: 1,
+            outputTokens: 1,
+            totalTokens: 2,
+            latencyMs: 10
+          };
+        }
+      }
+    );
+
+    assert.equal(result.outcome, "STAGE_ADVANCED");
+    assert.equal(result.run.status, "AWAITING_SCRIPT_LOCK");
+
+    assert.equal(callsByVariant.VEHICLE_FIRST, 3, "VEHICLE_FIRST must be retried up to the per-variant max attempts");
+    assert.equal(callsByVariant.WORLD_FIRST, 1, "an already-successful variant must never be regenerated");
+    assert.equal(callsByVariant.CHARACTER_FIRST, 1, "an already-successful variant must never be regenerated");
+
+    const scripts = [...pool._state.scripts.values()];
+    assert.equal(scripts.length, 3);
+
+    for (const script of scripts) {
+      assert.equal(script.validation_status, "PASS");
+      assert.ok(!script.validation_issues.some(item => item.code === "SCRIPT_BATCH_BLOCKED"));
+      assert.ok(isIntegratedScriptCoverage(script));
+    }
+
+    // story_generation_attempts must retain one row per individual
+    // Gemini call (5 total: 3 for VEHICLE_FIRST + 1 + 1), each with
+    // its own per-variant attempt_number (1, 2, 3, 1, 1 in call
+    // order) -- not a single cumulative counter across all variants.
+    assert.equal(pool._state.attempts.length, 5);
+    assert.deepEqual(
+      pool._state.attempts.map(attempt => attempt.values[12]),
+      [1, 2, 3, 1, 1]
+    );
+  }
+
+  // Case 2 -- CHARACTER_FIRST drops historical_resonance:13 on EVERY
+  // attempt (exhausts its own per-variant retries still BLOCKED),
+  // while VEHICLE_FIRST and WORLD_FIRST both pass on their first
+  // attempt. Each variant was retried independently, but the batch is
+  // still an all-or-nothing unit at persistence time: one exhausted
+  // BLOCKED variant must still force all three persisted rows BLOCKED,
+  // not just the offending one.
+  {
+    const pool = createMockStoryPool(
+      [regressionRunRow({ status: "GENERATING_SCRIPTS" })],
+      { outlines: [makeBatchFixtureLockedOutlineRow(701)] }
+    );
+
+    const callsByVariant = { VEHICLE_FIRST: 0, WORLD_FIRST: 0, CHARACTER_FIRST: 0 };
+
+    const result = await executeScriptsGeneration(
+      pool,
+      pool._state.runs.get(1),
+      {
+        loadCanonBundle: () => FAKE_CANON_BUNDLE,
+        generateJson: async ({ input }) => {
+          const variant = input.target_variant_type;
+          callsByVariant[variant] += 1;
+
+          // Drops historical_resonance:13 -- inherited
+          // coverage_status.historical_resonance is USED, so this
+          // one variant fails SCRIPT_COVERAGE_DROPPED every time,
+          // exhausting all of its own retry attempts.
+          const evidenceRefs =
+            variant === "CHARACTER_FIRST"
+              ? ["vehicle:9", "country_news:413", "person:13"]
+              : FULL_EVIDENCE_REFS;
+
+          return {
+            data: makeBatchFixtureScriptVariant(variant, { evidenceRefs }),
+            provider: "gemini",
+            model: "test-model",
+            inputTokens: 1,
+            outputTokens: 1,
+            totalTokens: 2,
+            latencyMs: 10
+          };
+        }
+      }
+    );
+
+    assert.equal(callsByVariant.VEHICLE_FIRST, 1, "an already-successful variant must never be regenerated");
+    assert.equal(callsByVariant.WORLD_FIRST, 1, "an already-successful variant must never be regenerated");
+    assert.equal(callsByVariant.CHARACTER_FIRST, 3, "CHARACTER_FIRST must exhaust its own per-variant max attempts");
+    assert.equal(result.outcome, "STAGE_ADVANCED");
+    assert.equal(result.run.status, "AWAITING_SCRIPT_LOCK");
+
+    const scripts = [...pool._state.scripts.values()];
+    assert.equal(scripts.length, 3);
+
+    const byVariant = Object.fromEntries(
+      scripts.map(s => [s.variant_type, s])
+    );
+
+    // Even the two variants with genuinely complete evidence must be
+    // blocked -- the batch failed as a set.
+    assert.equal(byVariant.VEHICLE_FIRST.validation_status, "BLOCKED");
+    assert.equal(byVariant.WORLD_FIRST.validation_status, "BLOCKED");
+    assert.equal(byVariant.CHARACTER_FIRST.validation_status, "BLOCKED");
+
+    for (const script of scripts) {
+      assert.ok(
+        script.validation_issues.some(item => item.code === "SCRIPT_BATCH_BLOCKED")
+      );
+      assert.ok(!isIntegratedScriptCoverage(script));
+    }
+
+    // The offending script's own SCRIPT_COVERAGE_DROPPED issue is
+    // preserved on its row, alongside (not instead of) the batch marker.
+    assert.ok(
+      byVariant.CHARACTER_FIRST.validation_issues.some(
+        item => item.code === "SCRIPT_COVERAGE_DROPPED"
+      )
+    );
+  }
+
+  // Case 3 -- a complete, fully-passing batch persists all three rows
+  // as PASS and each is independently lockable.
+  {
+    const pool = createMockStoryPool(
+      [regressionRunRow({ status: "GENERATING_SCRIPTS" })],
+      { outlines: [makeBatchFixtureLockedOutlineRow(702)] }
+    );
+
+    const result = await executeScriptsGeneration(
+      pool,
+      pool._state.runs.get(1),
+      {
+        loadCanonBundle: () => FAKE_CANON_BUNDLE,
+        generateJson: async ({ input }) => ({
+          data: makeBatchFixtureScriptVariant(input.target_variant_type),
+          provider: "gemini",
+          model: "test-model",
+          inputTokens: 1,
+          outputTokens: 1,
+          totalTokens: 2,
+          latencyMs: 10
+        })
+      }
+    );
+
+    assert.equal(result.outcome, "STAGE_ADVANCED");
+    assert.equal(result.run.status, "AWAITING_SCRIPT_LOCK");
+
+    const scripts = [...pool._state.scripts.values()];
+    assert.equal(scripts.length, 3);
+
+    for (const script of scripts) {
+      assert.equal(script.validation_status, "PASS");
+      assert.ok(
+        !script.validation_issues.some(item => item.code === "SCRIPT_BATCH_BLOCKED")
+      );
+      assert.ok(isIntegratedScriptCoverage(script));
+    }
+  }
+
+  // Case 4 -- a provider HTTP failure on one variant (the real Live
+  // Acceptance failure this fix targets: Gemini returned HTTP 400
+  // before any response/validation) must fail the whole SCRIPTS stage
+  // safely, exactly like a canon-mismatch failure -- never retried by
+  // the per-variant loop, never left as a partial batch of rows.
+  {
+    const pool = createMockStoryPool(
+      [regressionRunRow({ status: "GENERATING_SCRIPTS" })],
+      { outlines: [makeBatchFixtureLockedOutlineRow(703)] }
+    );
+
+    const requestedVariants = [];
+
+    const result = await executeScriptsGeneration(
+      pool,
+      pool._state.runs.get(1),
+      {
+        loadCanonBundle: () => FAKE_CANON_BUNDLE,
+        generateJson: async ({ input }) => {
+          requestedVariants.push(input.target_variant_type);
+
+          if (input.target_variant_type === "CHARACTER_FIRST") {
+            const error = new Error(
+              "Provider returned HTTP 400 before any response/validation."
+            );
+            error.code = "PROVIDER_UPSTREAM_ERROR";
+            throw error;
+          }
+
+          return {
+            data: makeBatchFixtureScriptVariant(input.target_variant_type),
+            provider: "gemini",
+            model: "test-model",
+            inputTokens: 1,
+            outputTokens: 1,
+            totalTokens: 2,
+            latencyMs: 10
+          };
+        }
+      }
+    );
+
+    assert.deepEqual(requestedVariants, ["VEHICLE_FIRST", "WORLD_FIRST", "CHARACTER_FIRST"]);
+    assert.equal(result.outcome, "RUN_FAILED");
+    assert.equal(result.stage, "SCRIPTS");
+
+    const row = pool._state.runs.get(1);
+    assert.equal(row.status, "FAILED");
+    assert.equal(row.error_code, "PROVIDER_UPSTREAM_ERROR");
+
+    assert.equal(
+      [...pool._state.scripts.values()].length,
+      0,
+      "no partial Script rows may be persisted on a stage failure"
+    );
+  }
+
+  console.log("REVIEW FIX STORY WORKER TESTS PASSED: script batch atomicity on final-attempt failure");
+
+  console.log("TASK 3.6 STORY WORKER TESTS PASSED: coverage inheritance, retry loop, forward-propagation to Scripts");
+
+  console.log("PROVIDER LIMIT FIX STORY WORKER TESTS PASSED: scripts generated as three independent single-variant Gemini calls, per-variant retry, batch atomicity, provider-failure safety");
 }
 
 run().catch(error => {

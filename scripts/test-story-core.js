@@ -12,7 +12,9 @@ const {
   validateScriptShape,
   validateScriptBatchShape,
   countEnglishWords,
-  computeScriptDuration
+  computeScriptDuration,
+  isIntegratedOutlineCoverage,
+  isIntegratedScriptCoverage
 } = require("../lib/story/schemas");
 
 const {
@@ -23,6 +25,11 @@ const {
   validateOutline,
   validateScript
 } = require("../lib/story/validators");
+
+const {
+  computeCoverageStatusFromSnapshot,
+  mergeSignalContributions
+} = require("../lib/story/engine");
 
 // ---------------------------------------------------------
 // Fixtures: valid canon documents written to a throwaway temp
@@ -1468,6 +1475,1023 @@ function run() {
   }
 
   console.log("TASK 3.4E STORY CORE TESTS PASSED");
+
+  // =========================================================
+  // Task 3.6: Outline/Script Integrated Signals inheritance +
+  // coverage continuity.
+  // =========================================================
+
+  // -------------------------------------------------------
+  // computeCoverageStatusFromSnapshot: a pure function of the
+  // candidate snapshot's country_news/no_person_signal facts --
+  // vehicle/apex are always USED, country/person/historical follow
+  // the snapshot exactly.
+  // -------------------------------------------------------
+  {
+    const allSignals = computeCoverageStatusFromSnapshot({
+      country_news: { id: "country_news:413" },
+      no_person_signal: false
+    });
+    assert.deepEqual(allSignals, {
+      vehicle_signal: "USED",
+      country_signal: "USED",
+      person_signal: "USED",
+      historical_resonance: "USED",
+      apex_rules: "USED",
+      locked_beat: "MATCH"
+    });
+
+    const noSignals = computeCoverageStatusFromSnapshot({
+      country_news: null,
+      no_person_signal: true
+    });
+    assert.deepEqual(noSignals, {
+      vehicle_signal: "USED",
+      country_signal: "NOT_AVAILABLE",
+      person_signal: "NOT_AVAILABLE",
+      historical_resonance: "NOT_AVAILABLE",
+      apex_rules: "USED",
+      locked_beat: "MATCH"
+    });
+  }
+
+  // -------------------------------------------------------
+  // mergeSignalContributions: SINGLE mode returns the one direction's
+  // signal_contributions verbatim; MERGE mode unions evidence_refs
+  // per layer and keeps a NOT_AVAILABLE marker instead of inventing
+  // evidence_refs for a layer that does not exist.
+  // -------------------------------------------------------
+  {
+    const directionA = makeIntegratedDirection("TECHNICAL_SACRIFICE");
+
+    const single = mergeSignalContributions([directionA]);
+    assert.deepEqual(single, directionA.signal_contributions);
+
+    const directionB = makeIntegratedDirection("SURVEILLANCE_TRAP", {
+      signal_contributions: {
+        ...makeIntegratedDirection("SURVEILLANCE_TRAP").signal_contributions,
+        vehicle: {
+          evidence_refs: ["vehicle:9", "vehicle:extra"],
+          story_function: "adds a secondary system view",
+          preserved_traits: ["speed", "handling"],
+          transformed_traits: ["color"]
+        }
+      }
+    });
+
+    const merged = mergeSignalContributions([directionA, directionB]);
+    assert.deepEqual(
+      new Set(merged.vehicle.evidence_refs),
+      new Set(["vehicle:9", "vehicle:extra"])
+    );
+    assert.deepEqual(
+      new Set(merged.vehicle.preserved_traits),
+      new Set(["speed", "handling"])
+    );
+    // beat_id is identical across every direction in a batch -- apex
+    // is kept from the first payload verbatim rather than merged.
+    assert.deepEqual(merged.apex, directionA.signal_contributions.apex);
+
+    const noCountryA = makeIntegratedDirection("TECHNICAL_SACRIFICE", {
+      signal_contributions: {
+        ...makeIntegratedDirection("TECHNICAL_SACRIFICE").signal_contributions,
+        country: { country_signal: "NOT_AVAILABLE" }
+      }
+    });
+    const noCountryB = makeIntegratedDirection("SURVEILLANCE_TRAP", {
+      signal_contributions: {
+        ...makeIntegratedDirection("SURVEILLANCE_TRAP").signal_contributions,
+        country: { country_signal: "NOT_AVAILABLE" }
+      }
+    });
+    const mergedNoCountry = mergeSignalContributions([noCountryA, noCountryB]);
+    assert.deepEqual(mergedNoCountry.country, {
+      country_signal: "NOT_AVAILABLE"
+    });
+  }
+
+  // -------------------------------------------------------
+  // Outline coverage continuity (runOutlineCoverageContinuityValidator,
+  // wired into validateOutline): an outline that silently drops a
+  // layer its selected direction(s) already committed to using as
+  // USED is BLOCKED, a NOT_AVAILABLE layer is never checked, and a
+  // legacy context (no inherited coverage data) never triggers the
+  // check at all.
+  // -------------------------------------------------------
+  {
+    const inheritedDirection = makeIntegratedDirection("TECHNICAL_SACRIFICE");
+    const inheritedSignalContributions = inheritedDirection.signal_contributions;
+    const inheritedCoverageStatus = inheritedDirection.coverage_status;
+
+    const baseContext = {
+      evidenceIds: REGRESSION_EVIDENCE_IDS,
+      noPersonSignal: false,
+      inheritedSignalContributions,
+      inheritedCoverageStatus
+    };
+
+    // makeOutline()'s default canon_state_impact.evidence_refs is
+    // ["vehicle:1"], which is outside REGRESSION_EVIDENCE_IDS -- swap
+    // it for a regression-fixture ref so these cases only exercise
+    // the new coverage-continuity check, not an unrelated
+    // EVIDENCE_REF_NOT_FOUND from the pre-existing evidence validator.
+    const canonStateImpactWithRegressionEvidence = {
+      state: "PROPOSED_STATE_CHANGE",
+      target_state: "QUALIFIER_ENTERED",
+      entity_type: "DRIVER",
+      previous_state: "CANDIDATE_APPROVED",
+      evidence_refs: ["vehicle:9"],
+      reason: "reason"
+    };
+
+    const goodOutline = makeOutline({
+      canon_state_impact: canonStateImpactWithRegressionEvidence,
+      evidence_map: [
+        "vehicle:9",
+        "country_news:413",
+        "person:13",
+        "historical_resonance:13"
+      ]
+    });
+    assert.equal(
+      validateOutline(goodOutline, baseContext).validation_status,
+      "PASS"
+    );
+
+    const droppedCountryOutline = makeOutline({
+      canon_state_impact: canonStateImpactWithRegressionEvidence,
+      evidence_map: ["vehicle:9", "person:13", "historical_resonance:13"]
+    });
+    const droppedResult = validateOutline(droppedCountryOutline, baseContext);
+    assert.equal(droppedResult.validation_status, "BLOCKED");
+    assert.ok(
+      droppedResult.issues.some(i => i.code === "OUTLINE_COVERAGE_DROPPED")
+    );
+
+    const noCountryNoPersonContext = {
+      ...baseContext,
+      inheritedCoverageStatus: {
+        ...inheritedCoverageStatus,
+        country_signal: "NOT_AVAILABLE",
+        person_signal: "NOT_AVAILABLE",
+        historical_resonance: "NOT_AVAILABLE"
+      }
+    };
+    const vehicleOnlyOutline = makeOutline({
+      canon_state_impact: canonStateImpactWithRegressionEvidence,
+      evidence_map: ["vehicle:9"]
+    });
+    assert.equal(
+      validateOutline(vehicleOnlyOutline, noCountryNoPersonContext)
+        .validation_status,
+      "PASS"
+    );
+
+    const legacyOutline = makeOutline();
+    assert.equal(
+      validateOutline(legacyOutline, {
+        evidenceIds: new Set(["vehicle:1"]),
+        noPersonSignal: false
+      }).validation_status,
+      "PASS"
+    );
+  }
+
+  // -------------------------------------------------------
+  // Review fix: person_signal and historical_resonance are USED
+  // together but must be verified independently -- both live under
+  // the same signal_contributions.person.evidence_refs array
+  // (["person:13", "historical_resonance:13"]), so a naive combined
+  // overlap check would let a lone person:13 ref satisfy
+  // historical_resonance too (or vice versa). Each must be checked
+  // against its own id-prefixed refs.
+  // -------------------------------------------------------
+  {
+    const inheritedDirection = makeIntegratedDirection("TECHNICAL_SACRIFICE");
+    const inheritedSignalContributions = inheritedDirection.signal_contributions;
+    const inheritedCoverageStatus = inheritedDirection.coverage_status;
+
+    const baseContext = {
+      evidenceIds: REGRESSION_EVIDENCE_IDS,
+      noPersonSignal: false,
+      inheritedSignalContributions,
+      inheritedCoverageStatus
+    };
+
+    const canonStateImpactWithRegressionEvidence = {
+      state: "PROPOSED_STATE_CHANGE",
+      target_state: "QUALIFIER_ENTERED",
+      entity_type: "DRIVER",
+      previous_state: "CANDIDATE_APPROVED",
+      evidence_refs: ["vehicle:9"],
+      reason: "reason"
+    };
+
+    // person:13 present, historical_resonance:13 missing -> BLOCKED,
+    // and the message must name historical_resonance, not person_signal.
+    const missingHistoricalOutline = makeOutline({
+      canon_state_impact: canonStateImpactWithRegressionEvidence,
+      evidence_map: ["vehicle:9", "country_news:413", "person:13"]
+    });
+    const missingHistoricalResult = validateOutline(
+      missingHistoricalOutline,
+      baseContext
+    );
+    assert.equal(missingHistoricalResult.validation_status, "BLOCKED");
+    assert.ok(
+      missingHistoricalResult.issues.some(
+        i =>
+          i.code === "OUTLINE_COVERAGE_DROPPED" &&
+          i.message.includes("historical_resonance") &&
+          !i.message.includes('"person_signal"')
+      )
+    );
+
+    // historical_resonance:13 present, person:13 missing -> BLOCKED,
+    // and the message must name person_signal, not historical_resonance.
+    const missingPersonOutline = makeOutline({
+      canon_state_impact: canonStateImpactWithRegressionEvidence,
+      evidence_map: ["vehicle:9", "country_news:413", "historical_resonance:13"]
+    });
+    const missingPersonResult = validateOutline(missingPersonOutline, baseContext);
+    assert.equal(missingPersonResult.validation_status, "BLOCKED");
+    assert.ok(
+      missingPersonResult.issues.some(
+        i =>
+          i.code === "OUTLINE_COVERAGE_DROPPED" &&
+          i.message.includes('"person_signal"') &&
+          !i.message.includes("historical_resonance")
+      )
+    );
+
+    // Both present -> PASS.
+    const bothPresentOutline = makeOutline({
+      canon_state_impact: canonStateImpactWithRegressionEvidence,
+      evidence_map: [
+        "vehicle:9",
+        "country_news:413",
+        "person:13",
+        "historical_resonance:13"
+      ]
+    });
+    assert.equal(
+      validateOutline(bothPresentOutline, baseContext).validation_status,
+      "PASS"
+    );
+  }
+
+  // -------------------------------------------------------
+  // Script coverage continuity (runScriptCoverageContinuityValidator,
+  // wired into validateScript): same rules as Outline, checked
+  // independently per variant.
+  // -------------------------------------------------------
+  {
+    const inheritedDirection = makeIntegratedDirection("TECHNICAL_SACRIFICE");
+    const inheritedSignalContributions = inheritedDirection.signal_contributions;
+    const inheritedCoverageStatus = inheritedDirection.coverage_status;
+
+    const baseContext = {
+      evidenceIds: REGRESSION_EVIDENCE_IDS,
+      noPersonSignal: false,
+      language: "en",
+      inheritedSignalContributions,
+      inheritedCoverageStatus
+    };
+
+    function shotsWithEvidence(ref) {
+      return makeShots(6).map(shot => ({ ...shot, evidence_refs: [ref] }));
+    }
+
+    const goodScript = makeScript("VEHICLE_FIRST", {
+      shots: shotsWithEvidence("vehicle:9"),
+      evidence_map: [
+        "vehicle:9",
+        "country_news:413",
+        "person:13",
+        "historical_resonance:13"
+      ]
+    });
+    assert.equal(
+      validateScript(goodScript, baseContext).validation_status,
+      "PASS"
+    );
+
+    const droppedPersonScript = makeScript("VEHICLE_FIRST", {
+      shots: shotsWithEvidence("vehicle:9"),
+      evidence_map: ["vehicle:9", "country_news:413"]
+    });
+    const droppedResult = validateScript(droppedPersonScript, baseContext);
+    assert.equal(droppedResult.validation_status, "BLOCKED");
+    assert.ok(
+      droppedResult.issues.some(i => i.code === "SCRIPT_COVERAGE_DROPPED")
+    );
+
+    const legacyScript = makeScript("VEHICLE_FIRST");
+    assert.equal(
+      validateScript(legacyScript, {
+        evidenceIds: new Set(["vehicle:1"]),
+        noPersonSignal: false,
+        language: "en"
+      }).validation_status,
+      "PASS"
+    );
+  }
+
+  // -------------------------------------------------------
+  // Review fix: same independent person_signal / historical_resonance
+  // check as the Outline block above, exercised on a Script.
+  // -------------------------------------------------------
+  {
+    const inheritedDirection = makeIntegratedDirection("TECHNICAL_SACRIFICE");
+    const inheritedSignalContributions = inheritedDirection.signal_contributions;
+    const inheritedCoverageStatus = inheritedDirection.coverage_status;
+
+    const baseContext = {
+      evidenceIds: REGRESSION_EVIDENCE_IDS,
+      noPersonSignal: false,
+      language: "en",
+      inheritedSignalContributions,
+      inheritedCoverageStatus
+    };
+
+    function shotsWithEvidence(ref) {
+      return makeShots(6).map(shot => ({ ...shot, evidence_refs: [ref] }));
+    }
+
+    // person:13 present, historical_resonance:13 missing -> BLOCKED,
+    // message must name historical_resonance, not person_signal.
+    const missingHistoricalScript = makeScript("VEHICLE_FIRST", {
+      shots: shotsWithEvidence("vehicle:9"),
+      evidence_map: ["vehicle:9", "country_news:413", "person:13"]
+    });
+    const missingHistoricalResult = validateScript(
+      missingHistoricalScript,
+      baseContext
+    );
+    assert.equal(missingHistoricalResult.validation_status, "BLOCKED");
+    assert.ok(
+      missingHistoricalResult.issues.some(
+        i =>
+          i.code === "SCRIPT_COVERAGE_DROPPED" &&
+          i.message.includes("historical_resonance") &&
+          !i.message.includes('"person_signal"')
+      )
+    );
+
+    // historical_resonance:13 present, person:13 missing -> BLOCKED,
+    // message must name person_signal, not historical_resonance.
+    const missingPersonScript = makeScript("VEHICLE_FIRST", {
+      shots: shotsWithEvidence("vehicle:9"),
+      evidence_map: ["vehicle:9", "country_news:413", "historical_resonance:13"]
+    });
+    const missingPersonResult = validateScript(missingPersonScript, baseContext);
+    assert.equal(missingPersonResult.validation_status, "BLOCKED");
+    assert.ok(
+      missingPersonResult.issues.some(
+        i =>
+          i.code === "SCRIPT_COVERAGE_DROPPED" &&
+          i.message.includes('"person_signal"') &&
+          !i.message.includes("historical_resonance")
+      )
+    );
+
+    // Both present -> PASS.
+    const bothPresentScript = makeScript("VEHICLE_FIRST", {
+      shots: shotsWithEvidence("vehicle:9"),
+      evidence_map: [
+        "vehicle:9",
+        "country_news:413",
+        "person:13",
+        "historical_resonance:13"
+      ]
+    });
+    assert.equal(
+      validateScript(bothPresentScript, baseContext).validation_status,
+      "PASS"
+    );
+  }
+
+  // -------------------------------------------------------
+  // Review fix: isIntegratedOutlineCoverage / isIntegratedScriptCoverage
+  // are the single source of truth for "is this row actually lockable"
+  // -- a stored validation_status of PASS alone is not sufficient for a
+  // legacy (pre-Task-3.6) row missing coverage provenance.
+  // -------------------------------------------------------
+  {
+    const integratedOutline = {
+      signal_contributions: { vehicle: { evidence_refs: ["vehicle:9"] } },
+      coverage_status: { vehicle_signal: "USED" },
+      source_direction_ids: [1],
+      locked_beat_id: "BEAT-04",
+      validation_status: "PASS"
+    };
+    assert.equal(isIntegratedOutlineCoverage(integratedOutline), true);
+
+    const legacyOutline = {
+      signal_contributions: null,
+      coverage_status: null,
+      source_direction_ids: [],
+      locked_beat_id: null,
+      validation_status: "PASS"
+    };
+    assert.equal(isIntegratedOutlineCoverage(legacyOutline), false);
+
+    // Every required field individually gates lockability, not just
+    // signal_contributions/coverage_status presence.
+    assert.equal(
+      isIntegratedOutlineCoverage({ ...integratedOutline, source_direction_ids: [] }),
+      false
+    );
+    assert.equal(
+      isIntegratedOutlineCoverage({ ...integratedOutline, locked_beat_id: "" }),
+      false
+    );
+    assert.equal(
+      isIntegratedOutlineCoverage({ ...integratedOutline, validation_status: "BLOCKED" }),
+      false
+    );
+
+    const integratedScript = {
+      signal_contributions: { vehicle: { evidence_refs: ["vehicle:9"] } },
+      coverage_status: { vehicle_signal: "USED" },
+      source_outline_id: 1,
+      locked_beat_id: "BEAT-04",
+      validation_status: "PASS"
+    };
+    assert.equal(isIntegratedScriptCoverage(integratedScript), true);
+
+    const legacyScript = {
+      signal_contributions: null,
+      coverage_status: null,
+      source_outline_id: null,
+      locked_beat_id: null,
+      validation_status: "PASS"
+    };
+    assert.equal(isIntegratedScriptCoverage(legacyScript), false);
+
+    assert.equal(
+      isIntegratedScriptCoverage({ ...integratedScript, source_outline_id: null }),
+      false
+    );
+    assert.equal(
+      isIntegratedScriptCoverage({ ...integratedScript, locked_beat_id: null }),
+      false
+    );
+    assert.equal(
+      isIntegratedScriptCoverage({ ...integratedScript, validation_status: "BLOCKED" }),
+      false
+    );
+  }
+
+  // =========================================================
+  // Review fix: Canon/IP phrase detection must not self-poison on
+  // compliance/audit REPORTING fields (canon_constraints,
+  // forbidden_elements_respected, ip_safety_notes, risk_flags,
+  // validation_issues, retry_feedback) -- a negated compliance
+  // sentence there ("No official partnership is implied.") must
+  // never trigger the exact violation it reports the absence of.
+  // Real narrative text is still scanned, but per-sentence-segment
+  // with negation-before-phrase awareness for OFFICIAL_PARTNERSHIP_
+  // IMPLIED and TRAFFIC_DECIDES_RESULT specifically -- a real
+  // affirmative violation must still be caught wherever it appears.
+  // =========================================================
+
+  const BASE_OUTLINE_CONTEXT = {
+    evidenceIds: new Set(["vehicle:1"]),
+    noPersonSignal: false
+  };
+
+  const BASE_SCRIPT_CONTEXT = {
+    evidenceIds: new Set(["vehicle:1"]),
+    noPersonSignal: false,
+    language: "en"
+  };
+
+  // ---- OFFICIAL PARTNERSHIP: must PASS ----
+
+  // 1. Compliance field reports the absence of a partnership --
+  // must never itself be read as implying one.
+  {
+    const outline = makeOutline({
+      forbidden_elements_respected: ["No official partnership is implied."]
+    });
+    const result = validateOutline(outline, BASE_OUTLINE_CONTEXT);
+    assert.equal(
+      result.validation_status,
+      "PASS",
+      `Case 1 (Outline forbidden_elements_respected compliance echo): expected PASS, got ${JSON.stringify(result.issues)}`
+    );
+  }
+
+  // 2. Same shape on a Script's ip_safety_notes compliance field.
+  {
+    const script = makeScript("VEHICLE_FIRST", {
+      ip_safety_notes: ["The fictional team is not officially sponsored by any manufacturer."]
+    });
+    const result = validateScript(script, BASE_SCRIPT_CONTEXT);
+    assert.equal(
+      result.validation_status,
+      "PASS",
+      `Case 2 (Script ip_safety_notes compliance echo): expected PASS, got ${JSON.stringify(result.issues)}`
+    );
+  }
+
+  // 3. Negated claim in REAL narrative text (not a compliance field)
+  // must also pass -- narrative fields are still scanned, just with
+  // negation awareness.
+  {
+    const outline = makeOutline({
+      outcome: "The team operates without an official partnership."
+    });
+    const outlineResult = validateOutline(outline, BASE_OUTLINE_CONTEXT);
+    assert.equal(
+      outlineResult.validation_status,
+      "PASS",
+      `Case 3 (Outline narrative negation): expected PASS, got ${JSON.stringify(outlineResult.issues)}`
+    );
+
+    const script = makeScript("VEHICLE_FIRST", {
+      hook: "The team operates without an official partnership."
+    });
+    const scriptResult = validateScript(script, BASE_SCRIPT_CONTEXT);
+    assert.equal(
+      scriptResult.validation_status,
+      "PASS",
+      `Case 3 (Script narrative negation): expected PASS, got ${JSON.stringify(scriptResult.issues)}`
+    );
+  }
+
+  // ---- OFFICIAL PARTNERSHIP: must BLOCK ----
+
+  // 4. Real affirmative partnership claim.
+  {
+    const outline = makeOutline({
+      outcome: "The team has an official partnership with Toyota."
+    });
+    const outlineResult = validateOutline(outline, BASE_OUTLINE_CONTEXT);
+    assert.equal(outlineResult.validation_status, "BLOCKED", "Case 4 (Outline): expected BLOCKED");
+    assert.ok(outlineResult.issues.some(i => i.code === "OFFICIAL_PARTNERSHIP_IMPLIED"));
+
+    const script = makeScript("VEHICLE_FIRST", {
+      hook: "The team has an official partnership with Toyota."
+    });
+    const scriptResult = validateScript(script, BASE_SCRIPT_CONTEXT);
+    assert.equal(scriptResult.validation_status, "BLOCKED", "Case 4 (Script): expected BLOCKED");
+    assert.ok(scriptResult.issues.some(i => i.code === "OFFICIAL_PARTNERSHIP_IMPLIED"));
+  }
+
+  // 5. Real affirmative sponsorship claim.
+  {
+    const outline = makeOutline({
+      outcome: "The vehicle is officially sponsored by the manufacturer."
+    });
+    const outlineResult = validateOutline(outline, BASE_OUTLINE_CONTEXT);
+    assert.equal(outlineResult.validation_status, "BLOCKED", "Case 5 (Outline): expected BLOCKED");
+    assert.ok(outlineResult.issues.some(i => i.code === "OFFICIAL_PARTNERSHIP_IMPLIED"));
+
+    const script = makeScript("VEHICLE_FIRST", {
+      hook: "The vehicle is officially sponsored by the manufacturer."
+    });
+    const scriptResult = validateScript(script, BASE_SCRIPT_CONTEXT);
+    assert.equal(scriptResult.validation_status, "BLOCKED", "Case 5 (Script): expected BLOCKED");
+    assert.ok(scriptResult.issues.some(i => i.code === "OFFICIAL_PARTNERSHIP_IMPLIED"));
+  }
+
+  // 6. The structured boolean check must remain intact and unaffected
+  // by any of the narrative-text changes above -- this is a Direction
+  // field (vehicle_transformation.official_partnership_implied), not
+  // a text scan.
+  {
+    const direction = makeIntegratedDirection("TECHNICAL_SACRIFICE", {
+      vehicle_transformation: {
+        evidence_vehicle: "Real Car X",
+        canon_vehicle_name: "Fictional Vehicle Prime",
+        preserved_traits: ["speed"],
+        changed_traits: ["color"],
+        official_partnership_implied: true
+      }
+    });
+
+    const result = validateDirectionBatch(
+      [
+        direction,
+        makeIntegratedDirection("SURVEILLANCE_TRAP"),
+        makeIntegratedDirection("CULTURAL_LEGACY")
+      ],
+      REGRESSION_CONTEXT
+    );
+
+    assert.equal(result.perDirection[0].validation_status, "BLOCKED", "Case 6: expected BLOCKED");
+    assert.ok(
+      result.perDirection[0].issues.some(
+        i =>
+          i.code === "OFFICIAL_PARTNERSHIP_IMPLIED" &&
+          i.path === "vehicle_transformation.official_partnership_implied"
+      )
+    );
+  }
+
+  // ---- TRAFFIC DECIDES RESULT: must PASS ----
+
+  // 7-9. Negated traffic/popularity/audience-vote claims in real
+  // narrative text.
+  {
+    const negatedTrafficSentences = [
+      "Traffic does not decide the race result.",
+      "Popularity never determines the winner.",
+      "Audience votes cannot decide the outcome."
+    ];
+
+    for (const [index, sentence] of negatedTrafficSentences.entries()) {
+      const caseNumber = 7 + index;
+
+      const outline = makeOutline({ outcome: sentence });
+      const outlineResult = validateOutline(outline, BASE_OUTLINE_CONTEXT);
+      assert.equal(
+        outlineResult.validation_status,
+        "PASS",
+        `Case ${caseNumber} (Outline): expected PASS for "${sentence}", got ${JSON.stringify(outlineResult.issues)}`
+      );
+
+      const script = makeScript("VEHICLE_FIRST", { hook: sentence });
+      const scriptResult = validateScript(script, BASE_SCRIPT_CONTEXT);
+      assert.equal(
+        scriptResult.validation_status,
+        "PASS",
+        `Case ${caseNumber} (Script): expected PASS for "${sentence}", got ${JSON.stringify(scriptResult.issues)}`
+      );
+    }
+  }
+
+  // 10. Compliance field restating the Canon rule itself (a
+  // canon_constraints entry, common to both Outline and Script) must
+  // never self-trigger.
+  {
+    const canonConstraints = ["Traffic/popularity must never decide the race result."];
+
+    const outline = makeOutline({ canon_constraints: canonConstraints });
+    const outlineResult = validateOutline(outline, BASE_OUTLINE_CONTEXT);
+    assert.equal(
+      outlineResult.validation_status,
+      "PASS",
+      `Case 10 (Outline canon_constraints echo): expected PASS, got ${JSON.stringify(outlineResult.issues)}`
+    );
+
+    const script = makeScript("VEHICLE_FIRST", { canon_constraints: canonConstraints });
+    const scriptResult = validateScript(script, BASE_SCRIPT_CONTEXT);
+    assert.equal(
+      scriptResult.validation_status,
+      "PASS",
+      `Case 10 (Script canon_constraints echo): expected PASS, got ${JSON.stringify(scriptResult.issues)}`
+    );
+  }
+
+  // ---- TRAFFIC DECIDES RESULT: must BLOCK ----
+
+  // 11-13. Real affirmative traffic/popularity/audience-vote claims.
+  {
+    const affirmativeTrafficSentences = [
+      "Traffic decides the race result.",
+      "Popularity determines the winner.",
+      "Audience votes crown the champion."
+    ];
+
+    for (const [index, sentence] of affirmativeTrafficSentences.entries()) {
+      const caseNumber = 11 + index;
+
+      const outline = makeOutline({ outcome: sentence });
+      const outlineResult = validateOutline(outline, BASE_OUTLINE_CONTEXT);
+      assert.equal(outlineResult.validation_status, "BLOCKED", `Case ${caseNumber} (Outline): expected BLOCKED for "${sentence}"`);
+      assert.ok(outlineResult.issues.some(i => i.code === "TRAFFIC_DECIDES_RESULT"));
+
+      const script = makeScript("VEHICLE_FIRST", { hook: sentence });
+      const scriptResult = validateScript(script, BASE_SCRIPT_CONTEXT);
+      assert.equal(scriptResult.validation_status, "BLOCKED", `Case ${caseNumber} (Script): expected BLOCKED for "${sentence}"`);
+      assert.ok(scriptResult.issues.some(i => i.code === "TRAFFIC_DECIDES_RESULT"));
+    }
+  }
+
+  // ---- Retry-feedback self-poisoning guard ----
+  //
+  // retry_feedback carries the PRIOR attempt's own validator issue
+  // messages (e.g. "Content implies an official brand partnership...")
+  // back into the next prompt's input. If Gemini's structured JSON
+  // response ever echoed a stray "retry_feedback" key back into its
+  // own output payload, that echoed validator message must not
+  // self-trigger the same issue code again.
+  {
+    const outline = makeOutline({
+      retry_feedback: {
+        previous_attempt_failed: true,
+        validation_issues: [
+          {
+            code: "OFFICIAL_PARTNERSHIP_IMPLIED",
+            message: 'Content implies an official brand partnership ("official partnership"), which is never permitted.',
+            path: "*"
+          },
+          {
+            code: "TRAFFIC_DECIDES_RESULT",
+            message: "Traffic/popularity must never be described as deciding a race result or winner.",
+            path: "*"
+          }
+        ]
+      }
+    });
+
+    const result = validateOutline(outline, BASE_OUTLINE_CONTEXT);
+    assert.equal(
+      result.validation_status,
+      "PASS",
+      `Retry-feedback self-poisoning guard: expected PASS, got ${JSON.stringify(result.issues)}`
+    );
+  }
+
+  // =========================================================
+  // Review fix (negation scope): a sentence-level "any negation cue
+  // anywhere in the sentence" check let one negated clause launder an
+  // unrelated affirmative violation in the same sentence, and checking
+  // only the FIRST regex/phrase match per segment let a later,
+  // affirmative occurrence slip through uninspected. Clauses are now
+  // split on stronger boundaries (.!?;:\n and comma+but/however/yet/
+  // and), and every occurrence within a clause is checked
+  // independently, so a negated occurrence never excuses an
+  // affirmative one -- regardless of which comes first.
+  // =========================================================
+
+  function assertPass(buildOutline, buildScript, label) {
+    const outlineResult = validateOutline(buildOutline(), BASE_OUTLINE_CONTEXT);
+    assert.equal(
+      outlineResult.validation_status,
+      "PASS",
+      `${label} (Outline): expected PASS, got ${JSON.stringify(outlineResult.issues)}`
+    );
+
+    const scriptResult = validateScript(buildScript(), BASE_SCRIPT_CONTEXT);
+    assert.equal(
+      scriptResult.validation_status,
+      "PASS",
+      `${label} (Script): expected PASS, got ${JSON.stringify(scriptResult.issues)}`
+    );
+  }
+
+  function assertBlocked(buildOutline, buildScript, code, label) {
+    const outlineResult = validateOutline(buildOutline(), BASE_OUTLINE_CONTEXT);
+    assert.equal(outlineResult.validation_status, "BLOCKED", `${label} (Outline): expected BLOCKED`);
+    assert.ok(
+      outlineResult.issues.some(i => i.code === code),
+      `${label} (Outline): expected issue ${code}, got ${JSON.stringify(outlineResult.issues.map(i => i.code))}`
+    );
+
+    const scriptResult = validateScript(buildScript(), BASE_SCRIPT_CONTEXT);
+    assert.equal(scriptResult.validation_status, "BLOCKED", `${label} (Script): expected BLOCKED`);
+    assert.ok(
+      scriptResult.issues.some(i => i.code === code),
+      `${label} (Script): expected issue ${code}, got ${JSON.stringify(scriptResult.issues.map(i => i.code))}`
+    );
+  }
+
+  // A. Unrelated negation before an affirmative partnership claim,
+  // joined by ", and" -- must still BLOCK on the second clause.
+  {
+    const text = "The car is not damaged, and the team has an official partnership with Toyota.";
+    assertBlocked(
+      () => makeOutline({ outcome: text }),
+      () => makeScript("VEHICLE_FIRST", { hook: text }),
+      "OFFICIAL_PARTNERSHIP_IMPLIED",
+      "Case A (unrelated negation before affirmative partnership)"
+    );
+  }
+
+  // B. First partnership occurrence negated, second affirmative --
+  // the first clause's "no" must never excuse the second clause.
+  {
+    const text =
+      "No official partnership existed before, but now the team has an official partnership with Toyota.";
+    assertBlocked(
+      () => makeOutline({ outcome: text }),
+      () => makeScript("VEHICLE_FIRST", { hook: text }),
+      "OFFICIAL_PARTNERSHIP_IMPLIED",
+      "Case B (first partnership occurrence negated, second affirmative)"
+    );
+  }
+
+  // C. Two independently-negated partnership occurrences -- both
+  // clauses negate their own occurrence, so this must PASS.
+  {
+    const text =
+      "There is no official partnership implied, and there is no official partnership formed.";
+    assertPass(
+      () => makeOutline({ outcome: text }),
+      () => makeScript("VEHICLE_FIRST", { hook: text }),
+      "Case C (two negated partnership occurrences)"
+    );
+  }
+
+  // D. A negated traffic clause followed by an affirmative traffic
+  // clause, joined by ", but" -- must BLOCK on the second clause.
+  {
+    const text = "Traffic does not affect lap time, but popularity determines the winner.";
+    assertBlocked(
+      () => makeOutline({ outcome: text }),
+      () => makeScript("VEHICLE_FIRST", { hook: text }),
+      "TRAFFIC_DECIDES_RESULT",
+      "Case D (negated traffic clause + affirmative traffic clause)"
+    );
+  }
+
+  // E. First traffic occurrence negated, second affirmative, joined
+  // by a semicolon -- the first clause must never excuse the second.
+  {
+    const text = "Popularity never mattered before; now audience votes decide the outcome.";
+    assertBlocked(
+      () => makeOutline({ outcome: text }),
+      () => makeScript("VEHICLE_FIRST", { hook: text }),
+      "TRAFFIC_DECIDES_RESULT",
+      "Case E (first traffic occurrence negated, second affirmative)"
+    );
+  }
+
+  // F. Every traffic occurrence negated across two clauses -- must
+  // PASS.
+  {
+    const text =
+      "Traffic does not decide the race result, and popularity never determines the winner.";
+    assertPass(
+      () => makeOutline({ outcome: text }),
+      () => makeScript("VEHICLE_FIRST", { hook: text }),
+      "Case F (all traffic occurrences negated)"
+    );
+  }
+
+  // G. Affirmative occurrence BEFORE a negated occurrence -- proves
+  // the occurrence loop does not only inspect the first/last match;
+  // order must never matter. Covers both partnership and traffic.
+  {
+    const partnershipText =
+      "The team has an official partnership with Toyota, but there is no official partnership with Ferrari.";
+    assertBlocked(
+      () => makeOutline({ outcome: partnershipText }),
+      () => makeScript("VEHICLE_FIRST", { hook: partnershipText }),
+      "OFFICIAL_PARTNERSHIP_IMPLIED",
+      "Case G (affirmative partnership before negated partnership)"
+    );
+
+    const trafficText = "Traffic decides the race result, but popularity never determines the winner.";
+    assertBlocked(
+      () => makeOutline({ outcome: trafficText }),
+      () => makeScript("VEHICLE_FIRST", { hook: trafficText }),
+      "TRAFFIC_DECIDES_RESULT",
+      "Case G (affirmative traffic before negated traffic)"
+    );
+  }
+
+  // H. Compliance-reporting fields containing the raw trigger phrases
+  // (affirmatively phrased, as part of restating the rule) must still
+  // PASS -- these fields are excluded from narrative scanning
+  // entirely, independent of negation.
+  {
+    const complianceNote =
+      "The rule against an official partnership must never be broken, and a claim that traffic decides the race result is forbidden.";
+
+    assertPass(
+      () => makeOutline({ forbidden_elements_respected: [complianceNote] }),
+      () => makeScript("VEHICLE_FIRST", { ip_safety_notes: [complianceNote] }),
+      "Case H (compliance fields containing trigger phrases)"
+    );
+  }
+
+  console.log("REVIEW FIX STORY CORE TESTS PASSED: validator negation scoped to individual claims, all occurrences checked");
+
+  // =========================================================
+  // Review fix (claim negation binding): the clause-level negation
+  // check above still decided negation from "does any negation cue
+  // appear anywhere in the localPrefix/matched span", which is wider
+  // than the claim it actually modifies -- an unrelated earlier
+  // negation ("not damaged") could still launder a real, later
+  // affirmative claim in the same clause (plain comma, or bare "and"
+  // with no comma, never split into separate clauses). Negation must
+  // now be decided from a small bounded window immediately adjacent
+  // to the specific occurrence (partnership phrases), or from the
+  // subject-to-verb gap of an independently identified claim (traffic
+  // subject/verb/object), so it can never bind to an unrelated claim.
+  // =========================================================
+
+  // 1-2. Unrelated "not damaged" negation before a real affirmative
+  // partnership claim, joined by a plain comma or a bare "and" (no
+  // comma) -- neither splits into a separate clause, so this proves
+  // negation is bounded to the occurrence, not "any cue in the
+  // clause".
+  {
+    assertBlocked(
+      () => makeOutline({ outcome: "The car is not damaged, the team has an official partnership with Toyota." }),
+      () => makeScript("VEHICLE_FIRST", { hook: "The car is not damaged, the team has an official partnership with Toyota." }),
+      "OFFICIAL_PARTNERSHIP_IMPLIED",
+      "Case 1 (unrelated negation, plain comma, no clause split)"
+    );
+
+    assertBlocked(
+      () => makeOutline({ outcome: "The car is not damaged and the team has an official partnership with Toyota." }),
+      () => makeScript("VEHICLE_FIRST", { hook: "The car is not damaged and the team has an official partnership with Toyota." }),
+      "OFFICIAL_PARTNERSHIP_IMPLIED",
+      "Case 2 (unrelated negation, bare and, no clause split)"
+    );
+  }
+
+  // 3. Unrelated "no mechanical failure" negation before a real
+  // affirmative sponsorship claim, joined by "while" (not a clause
+  // boundary).
+  {
+    const text = "The team has no mechanical failure while it is officially sponsored by the manufacturer.";
+    assertBlocked(
+      () => makeOutline({ outcome: text }),
+      () => makeScript("VEHICLE_FIRST", { hook: text }),
+      "OFFICIAL_PARTNERSHIP_IMPLIED",
+      "Case 3 (unrelated negation before sponsorship claim, while)"
+    );
+  }
+
+  // 4. First partnership occurrence negated, second affirmative --
+  // the first clause's "no" must never excuse the second.
+  {
+    const text =
+      "No official partnership existed before, but now the team has an official partnership with Toyota.";
+    assertBlocked(
+      () => makeOutline({ outcome: text }),
+      () => makeScript("VEHICLE_FIRST", { hook: text }),
+      "OFFICIAL_PARTNERSHIP_IMPLIED",
+      "Case 4 (first partnership occurrence negated, second affirmative)"
+    );
+  }
+
+  // 5-9. Directly-bound negation forms must all PASS.
+  {
+    const safePartnershipSentences = [
+      "No official partnership is implied.",
+      "The team operates without an official partnership.",
+      "The team is not officially sponsored by the manufacturer.",
+      "The project is not in partnership with Toyota.",
+      "An official partnership is not implied."
+    ];
+
+    for (const [index, sentence] of safePartnershipSentences.entries()) {
+      const caseNumber = 5 + index;
+      assertPass(
+        () => makeOutline({ outcome: sentence }),
+        () => makeScript("VEHICLE_FIRST", { hook: sentence }),
+        `Case ${caseNumber} (directly-bound partnership negation)`
+      );
+    }
+  }
+
+  // 10-14. Traffic claims that must BLOCK -- an unrelated subject's
+  // negation (or a negation bound to a different subject entirely)
+  // must never launder a real affirmative claim for another subject
+  // in the same clause/sentence.
+  {
+    const blockedTrafficSentences = [
+      "Traffic is not a concern and popularity determines the winner.",
+      "Traffic is not a concern, popularity determines the winner.",
+      "Traffic does not affect lap time while audience votes decide the outcome.",
+      "Popularity is not measured, but traffic decides the final result.",
+      "Traffic does not decide qualifying order, but traffic decides the winner."
+    ];
+
+    for (const [index, sentence] of blockedTrafficSentences.entries()) {
+      const caseNumber = 10 + index;
+      assertBlocked(
+        () => makeOutline({ outcome: sentence }),
+        () => makeScript("VEHICLE_FIRST", { hook: sentence }),
+        "TRAFFIC_DECIDES_RESULT",
+        `Case ${caseNumber} (unrelated/cross-subject traffic negation must not launder)`
+      );
+    }
+  }
+
+  // 15-18. Traffic claims where negation is directly bound to its own
+  // subject's decision verb must all PASS.
+  {
+    const safeTrafficSentences = [
+      "Traffic does not decide the race result.",
+      "Popularity never determines the winner.",
+      "Audience votes cannot crown the champion.",
+      "Traffic does not decide the result and popularity never determines the winner."
+    ];
+
+    for (const [index, sentence] of safeTrafficSentences.entries()) {
+      const caseNumber = 15 + index;
+      assertPass(
+        () => makeOutline({ outcome: sentence }),
+        () => makeScript("VEHICLE_FIRST", { hook: sentence }),
+        `Case ${caseNumber} (directly-bound traffic negation)`
+      );
+    }
+  }
+
+  console.log("REVIEW FIX STORY CORE TESTS PASSED: validator negation bound to the individual claim it directly modifies, cross-claim/cross-subject negation rejected");
+
+  console.log("REVIEW FIX STORY CORE TESTS PASSED: negated canon/IP phrase detection, compliance-field exclusion");
+
+  console.log("TASK 3.6 STORY CORE TESTS PASSED: coverage inheritance + continuity validators");
 }
 
 run();

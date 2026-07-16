@@ -8,6 +8,7 @@ const navigation = [
   { label: "Candidates", href: "/candidates" },
   { label: "Creative Packs", href: "/creative-packs" },
   { label: "Story Directions (Gate 2)", href: "/generation-queue" },
+  { label: "Outline & Script (Gate 3/4)", href: "/story-outline-script-review" },
   { label: "Publish Queue", href: "/publish-queue" },
   { label: "Analytics", href: "/analytics" },
 ];

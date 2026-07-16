@@ -1,10 +1,28 @@
-name: Task 3.5E Story Direction Live Acceptance
+name: Story Pipeline Live Acceptance
 
 # Manual-only: this exercises real Gemini calls (spends real API quota)
 # and a disposable Postgres service container, never the production
 # database. Trigger from Actions -> this workflow -> Run workflow.
+#
+# acceptance_suite selects which stage's real-Gemini acceptance runs:
+#   directions      -- Task 3.5E: executeDirectionsGeneration only.
+#   outline_scripts -- Task 3.6: Outline -> Outline Lock -> Scripts ->
+#                       Script Lock, against an existing (not
+#                       regenerated) Integrated Direction fixture.
+# Every other step (migrations, core/provider/api/worker/migration
+# tests) always runs regardless of which suite is selected -- none of
+# those touch Gemini or spend API quota.
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      acceptance_suite:
+        description: "Which live-Gemini acceptance suite to run"
+        required: true
+        type: choice
+        options:
+          - directions
+          - outline_scripts
+        default: directions
 
 permissions:
   contents: read
@@ -49,7 +67,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Apply migrations 001-015 against a real, disposable Postgres
+      - name: Apply migrations 001-016 against a real, disposable Postgres
         run: node scripts/ci-run-migrations.js
 
       - name: Migration 015 real-Postgres acceptance (constraints, uniqueness, rollback)
@@ -71,4 +89,9 @@ jobs:
         run: npm run test:story-migration
 
       - name: Live Gemini acceptance via executeDirectionsGeneration (real network calls)
+        if: ${{ github.event.inputs.acceptance_suite == 'directions' }}
         run: node scripts/live-accept-story-directions.js
+
+      - name: Live Gemini acceptance for Outline/Script (Task 3.6, real network calls)
+        if: ${{ github.event.inputs.acceptance_suite == 'outline_scripts' }}
+        run: node scripts/live-accept-story-outline-scripts.js
